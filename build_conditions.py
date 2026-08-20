@@ -23,27 +23,47 @@ import random
 
 from temporal_mask import mask_temporal
 
-PROMPT_TEMPLATE = """You are given a financial time series and a set of financial news articles.
-Your task is to answer the multiple-choice question using only the information provided below.
+# The response instruction lives here, once, and is shared by every condition.
+# No example answer letter, no request for hidden reasoning.
+RESPONSE_FORMAT = """Return exactly one JSON object with the following fields:
+
+{
+  "answer": "<A|B|C|D>",
+  "confidence": <number between 0 and 1>,
+  "rationale": "<brief 1-3 sentence justification>",
+  "evidence_articles": [<article indices used as evidence>]
+}
+
+Rules:
+- "answer" must be A, B, C, or D.
+- "confidence" must be a number between 0 and 1.
+- "rationale" must be concise and based only on the provided time series and news context.
+- "evidence_articles" must list the article indices actually used as evidence; use [] if no article was used.
+- Return only the JSON object."""
+
+# One neutral user-prompt template for C0/C1/C2/C3.  Condition-specific content
+# enters only through TIME_SERIES and NEWS_CONTEXT; the wording never changes.
+PROMPT_TEMPLATE = """Task
+
+Answer the following multiple-choice question using the provided financial time series and news context.
 
 Time Series
+
 Ticker: {TICKER}
+
 {TIME_SERIES}
 
 News Context
+
 {NEWS_CONTEXT}
 
 Question
+
 {MCQA_QUESTION}
 
 Select the single best answer.
-Return only the following JSON object:
 
-```json
-{{"answer": "A"}}
-```
-
-where "A" must be one of "A", "B", "C", or "D"."""
+{RESPONSE_FORMAT}"""
 
 ARTICLE_SEP = "\n\n"
 
@@ -182,6 +202,7 @@ def main():
                 NEWS_CONTEXT=news[cond],
                 MCQA_QUESTION=(q_masked if cond == "c2" and args.mask_question
                                else question),
+                RESPONSE_FORMAT=RESPONSE_FORMAT,
             )
             rec = {
                 "instance_id": iid,

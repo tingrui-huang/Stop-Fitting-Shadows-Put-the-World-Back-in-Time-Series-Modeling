@@ -140,6 +140,199 @@ Each JSONL record carries `instance_id`, `condition`, `ticker`, `answer`,
 `n_articles`, `article_order` (source instance ids in prompt order),
 `gt_position`, `timestamps_present` and the fully rendered `prompt`.
 
+## Prompt and inference protocol
+
+One protocol is shared by all four conditions. It is defined in two places only:
+`prompts/system.txt` (system prompt) and `PROMPT_TEMPLATE` / `RESPONSE_FORMAT` in
+`build_conditions.py` (user prompt). Nothing downstream appends to a prompt.
+
+This is an experimental extension of the MTBench finance MCQA task, **not** an
+exact reproduction of its published baseline; the numbers here are not
+comparable to published MTBench Claude scores.
+
+**Inherited from MTBench**
+
+- the finance MCQA task and its semantics
+- the original question and answer options, unmodified
+- the 7-day stock-price context
+- zero-shot answering from the provided time series + news context
+- MCQA accuracy as the main quantitative score
+
+**Intentionally different here**
+
+- observation-level timestamps are exposed explicitly in timestamp-preserving
+  conditions
+- C0/C1/C2/C3 apply controlled context interventions
+- output is structured JSON rather than a bare letter
+- a short rationale, `evidence_articles` and self-reported confidence are
+  collected for diagnostics (they are not part of the primary metric)
+- a Sonnet 5 CLI pilot instead of the original MTBench model configuration
+
+**Fixed across conditions**
+
+system prompt · user-prompt wording · response schema · model and CLI
+configuration · one fresh invocation per instance · no external tools · no
+conversation history · MCQA task framing.
+
+Only the content that C0/C1/C2/C3 explicitly define — the time-series rendering
+and the news context — is allowed to differ. The prompts contain no
+condition-specific hints: nothing states that articles are distractors, that
+timestamps were removed, that a ground-truth article is absent or present, or
+that any article aligns with the end of the time series. The model has to infer
+temporal relations from what the condition exposes.
+
+The user prompt is:
+
+```
+Task
+
+Answer the following multiple-choice question using the provided financial time series and news context.
+
+Time Series
+
+Ticker: {TICKER}
+
+{TIME_SERIES}
+
+News Context
+
+{NEWS_CONTEXT}
+
+Question
+
+{MCQA_QUESTION}
+
+Select the single best answer.
+
+{RESPONSE_FORMAT}
+```
+
+and `{RESPONSE_FORMAT}`, the single response instruction in the whole pipeline,
+asks for one JSON object with `answer` (`<A|B|C|D>`, no example letter is given),
+`confidence`, a brief 1-3 sentence `rationale`, and `evidence_articles`. The
+rationale is a short externally useful justification for error analysis — private
+chain-of-thought is never requested.
+
+## Running the C0 baseline
+
+The C0 pilot only checks that the C0 prompt is runnable and that the model can do
+the original MCQA task. C1/C2/C3 are untouched by it.
+
+```bash
+python build_conditions.py
+python verify_conditions.py
+python export_c0_cli.py
+```
+
+`export_c0_cli.py` reads `out/c0.jsonl` and writes one prompt file per instance
+plus an index:
+
+```
+out/c0_cli/408.txt, 96.txt, ...   the C0 prompt, byte for byte
+out/c0_cli/index.jsonl            {"instance_id": 408, "prompt_file": "408.txt", "gold_answer": "B", "ticker": "SPY"}
+```
+
+The exporter adds nothing to the prompt — the response instruction is already in
+it — and asserts that every exported file is byte-identical to the `prompt` field
+it came from. `python export_c0_cli.py --check` re-runs that comparison without
+rewriting anything.
+
+Then:
+
+```
+out/c0_cli/*.txt
+        ↓
+Claude CLI / Sonnet 5
+        ↓
+results/c0_raw/*.txt
+        ↓
+python collect_c0_results.py
+        ↓
+results/c0_sonnet5.jsonl
+        ↓
+python score_c0.py
+        ↓
+results/c0_summary.json
+```
+
+### Claude CLI invocation
+
+`claude` is installed locally (v2.1.177). The pilot runs one fresh non-interactive
+invocation per instance, with no conversation history between instances:
+
+```bash
+claude -p --model claude-sonnet-5 --system-prompt-file prompts/system.txt --tools "" --safe-mode --strict-mcp-config < out/c0_cli/408.txt > results/c0_raw/408.txt
+```
+
+| flag | effect (from the installed CLI's `--help`) |
+| --- | --- |
+| `-p` | non-interactive: print the response and exit |
+| `--system-prompt-file` | use `prompts/system.txt` as the system prompt |
+| `--tools ""` | disable all built-in tools |
+| `--safe-mode` | ignore CLAUDE.md, skills, plugins, hooks, MCP servers, custom agents |
+| `--strict-mcp-config` | no MCP servers beyond `--mcp-config` (none is given) |
+
+All instances (resumable — instances already collected are skipped; pass a second
+argument to stop after N instances):
+
+```bash
+bash run_c0_claude.sh claude-sonnet-5 3
+```
+
+Caveats, none of them papered over:
+
+- Every flag above was confirmed to exist in this CLI version (a deliberately
+  bogus flag is rejected with `unknown option`, these are not). They have **not**
+  been confirmed by a successful end-to-end run: the local CLI returns
+  `401 OAuth access token has expired`. Re-authenticate before running the pilot.
+- The model identifier is **not** validated client-side — a nonsense `--model`
+  value also reaches the auth error — so `claude-sonnet-5` is unverified here. If
+  it is rejected once authenticated, fall back to the `sonnet` alias and record
+  which one was used.
+- Decoding parameters (temperature, top-p) are not exposed by the CLI and are
+  therefore **not explicitly controlled**. Do not report this pilot as
+  temperature 0.
+- No API key and no SDK is used anywhere in this workflow.
+
+`run_c0_claude.sh` writes `results/c0_run_metadata.json` (CLI version, requested
+model, system-prompt file, flags, tools disabled, fresh invocation per instance,
+temperature "not explicitly controlled", instance count, start time) so a run can
+be reconstructed later. The served model is not reported by the CLI's text output,
+so that field records "not observed" rather than a guess.
+
+### Collecting and scoring
+
+```bash
+python collect_c0_results.py
+python score_c0.py
+```
+
+`collect_c0_results.py` reads each `results/c0_raw/<id>.txt`, locates the JSON
+object (tolerating markdown fences and a little surrounding prose), validates it,
+and writes one record per instance to `results/c0_sonnet5.jsonl`. Missing and
+malformed outputs are listed in `results/c0_collect_report.json` and printed —
+never guessed at, never repaired by a model. `score_c0.py` reports completed /
+correct / accuracy, missing and malformed instances, the A–D prediction
+distribution and mean confidence overall and split by correctness, and writes
+`results/c0_summary.json`.
+
+Field meanings (see also `results/README.md`):
+
+| field | meaning |
+| --- | --- |
+| `gold_answer` | the dataset's answer, taken from the index; never overwritten |
+| `prediction` | the model's answer, parsed from its JSON |
+| `rationale` | the model's short justification |
+| `raw_output` | the unmodified model output, preserved verbatim |
+| `correct` | computed as `prediction == gold_answer` |
+
+`confidence` is the model's **self-reported** confidence, not a calibrated
+probability. Accuracy is the primary metric; rationale, `evidence_articles` and
+confidence are diagnostic only.
+
+The rationale is intended for later qualitative / error analysis. It is a short
+justification, not a request for private chain-of-thought.
+
 ## Open design decisions
 
 **1. Distractor source.** No separate distractor pool exists in the repo, so the
