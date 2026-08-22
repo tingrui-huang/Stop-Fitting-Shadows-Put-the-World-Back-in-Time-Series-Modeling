@@ -175,8 +175,8 @@ def main():
               all(abs(x["offset_days"]) >= 90 for i in ids for x in alias[i]),
               str([(i, x["article_id"], x["offset_days"]) for i in ids
                    for x in alias[i] if abs(x["offset_days"]) < 90][:3]))
-        check("reviewed: type A event_match_tier is exact or family",
-              all(x["event_match_tier"] in ("exact", "family")
+        check("reviewed: type A event_match_tier is exact, family or manual_rescue",
+              all(x["event_match_tier"] in ("exact", "family", "manual_rescue")
                   for i in ids for x in alias[i]))
         check("reviewed: C3 carries exactly the same 10 distractors",
               all(sorted(map(str, C["c3"][i]["article_order"]))

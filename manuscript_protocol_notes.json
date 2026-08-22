@@ -3,6 +3,39 @@
   "status": "open - manuscript sentence and implementation disagree; no code change made",
   "items": [
     {
+      "id": "distractor_composition",
+      "status": "final",
+      "protocol": {
+        "required": [
+          "exactly 10 valid distractors per anchor",
+          "Type A / Type B taxonomy mutually exclusive",
+          "Type A validity rules unchanged (same ticker, same or clearly analogous event type, abs(offset_days) >= 90, both directions allowed)",
+          "Type B validity rules unchanged (topically adjacent, documents no corresponding target event, cannot itself explain the MCQA target)"
+        ],
+        "nominal_target_composition": "7A + 3B",
+        "filling": "adaptive according to corpus availability",
+        "both_modes_per_anchor": "PREFERRED, NOT REQUIRED"
+      },
+      "reportable_statement": "49/50 anchors contain both Type A and Type B. 1/50 anchor (334 TOL) contains 0A+10B because no valid same-ticker analyst-rating temporal alias exists in the official corpus.",
+      "why_not_replaced": "anchor KEPT. Replacing it would have removed the benchmark's only analyst-family anchor and introduced a larger event-family selection bias; the natural corpus limitation is recorded instead",
+      "anchor_freeze": "final50_paper_data.json is the final anchor set; no replacement on the basis of downstream model results is permitted"
+    },
+    {
+      "id": "c0_baseline_status",
+      "status": "superseded as a final baseline",
+      "statement": "The locked50 C0 run (45/50, results/locked50_c0_sonnet5.jsonl) is a PRE-FINAL-FREEZE DEVELOPMENTAL BASELINE. Six anchor ids changed when the benchmark was frozen as final50_paper_data.json, so that number no longer describes the final anchor set and must not be reported as the paper's C0 result.",
+      "replaced_anchor_ids": {
+        "36": 41,
+        "78": 142,
+        "99": 176,
+        "136": 172,
+        "357": 251,
+        "394": 215
+      },
+      "next_step": "run C0 exactly once on final50_paper_data.json after the six replacements are manually approved, and accept that result without any further anchor selection",
+      "no_selection_from_results": "no model prediction or C0 error was used to choose the anchors or the replacements"
+    },
+    {
       "id": "c2_intervention_scope",
       "status": "settled - implementation already matches",
       "manuscript_should_say": "C2 removes temporal information from the evidence context while holding the MCQA task wording fixed. The question and answer choices are byte-identical to the original MTBench wording in C0, C1, C2 and C3.",

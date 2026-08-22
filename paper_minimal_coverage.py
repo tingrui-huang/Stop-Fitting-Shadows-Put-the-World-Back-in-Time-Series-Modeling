@@ -32,8 +32,8 @@ import statistics
 from adaptive_coverage import load_rescues
 from build_final_hard50 import load_json
 from distractor_policy import (alias_map_from, documents_event, index_by_ticker,
-                               load_corpus_frame, offset_days, specific_aliases,
-                               type_a_candidates, STRONG_EVENTS)
+                               load_corpus_frame, match_tier, offset_days,
+                               specific_aliases, type_a_candidates, STRONG_EVENTS)
 from entity_alias import build_alias_map, names_for
 from news_corpus import event_type, parse_article, parse_utc
 
@@ -139,6 +139,12 @@ def type_b_paper_minimal(anchor, corpus_rows, alias, company=None):
             continue                                        # GT / duplicate
         if documents_event(a, anchor["gt_event"]):
             continue                                        # target event present
+        # taxonomy boundary: a same-ticker article of the same or analogous event
+        # type documents the target MECHANISM.  Beyond 90 days it is temporal
+        # aliasing (Type A); closer than that it is neither type.  Either way it
+        # can never be absence evidence.
+        if anchor["ticker"] in a["tickers"] and                 match_tier(anchor["gt_event"], a["event_type"]) is not None:
+            continue
         tier, evidence = strong_relation(anchor["ticker"], a, alias, company)
         if tier is None:
             continue
