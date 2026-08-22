@@ -73,6 +73,9 @@ def main():
     meta = json.load(open(os.path.join(args.out, "manifest.json"), encoding="utf-8"))
     man = {m["instance_id"]: m for m in meta["instances"]}
     mask_q = meta.get("mask_question", False)
+    mode = meta.get("distractor_mode", "legacy")
+    print("distractor mode: %s" % mode)
+    print("")
 
     check("all conditions cover the same instances",
           all(sorted(C[c]) == ids for c in C))
@@ -115,7 +118,7 @@ def main():
               for i in ids))
 
     # ---- C1 vs C2: the primary comparison ---------------------------------
-    check("C1/C2 article order identical",
+    check("C1/C2 article ids and order identical",
           all(C["c1"][i]["article_order"] == C["c2"][i]["article_order"] for i in ids))
     check("C1/C2 differ only by deterministic temporal masking",
           all(all((mask_temporal(t)[0], mask_temporal(c)[0]) == (t2, c2)
@@ -145,11 +148,47 @@ def main():
           all(art["c0"][i][0][0] == man[i]["gt_published_utc"] for i in ids))
 
     # ---- distractor sanity -------------------------------------------------
-    check("no distractor shares the instance's ticker",
-          all(C["c1"][i]["ticker"] not in
-              {man[j]["ticker"] for j in C["c3"][i]["article_order"]} for i in ids))
+    if mode == "legacy":
+        check("legacy: no distractor shares the instance's ticker",
+              all(C["c1"][i]["ticker"] not in
+                  {man[j]["ticker"] for j in C["c3"][i]["article_order"]} for i in ids))
+    else:
+        d = {i: man[i]["distractors"] for i in ids}
+        check("reviewed: exactly 10 approved distractors per anchor",
+              all(len(d[i]) == 10 for i in ids),
+              str({i: len(d[i]) for i in ids if len(d[i]) != 10}))
+        check("reviewed: no duplicate distractor id within an anchor",
+              all(len({x["article_id"] for x in d[i]}) == len(d[i]) for i in ids))
+        check("reviewed: the GT article never appears as a distractor",
+              all(C["c1"][i]["gt_source_id"] not in
+                  {x["article_id"] for x in d[i]} for i in ids))
+        check("reviewed: every distractor is a known type",
+              all(x["distractor_type"] in ("temporal_aliasing", "absence_evidence")
+                  for i in ids for x in d[i]))
+        alias = {i: [x for x in d[i] if x["distractor_type"] == "temporal_aliasing"]
+                 for i in ids}
+        check("reviewed: type A distractors share the anchor ticker",
+              all(x["ticker"] == C["c1"][i]["ticker"] for i in ids for x in alias[i]),
+              str([(i, x["article_id"], x["ticker"]) for i in ids for x in alias[i]
+                   if x["ticker"] != C["c1"][i]["ticker"]][:3]))
+        check("reviewed: type A abs(offset_days) >= 90",
+              all(abs(x["offset_days"]) >= 90 for i in ids for x in alias[i]),
+              str([(i, x["article_id"], x["offset_days"]) for i in ids
+                   for x in alias[i] if abs(x["offset_days"]) < 90][:3]))
+        check("reviewed: type A event_match_tier is exact or family",
+              all(x["event_match_tier"] in ("exact", "family")
+                  for i in ids for x in alias[i]))
+        check("reviewed: C3 carries exactly the same 10 distractors",
+              all(sorted(map(str, C["c3"][i]["article_order"]))
+                  == sorted(str(x["article_id"]) for x in d[i]) for i in ids))
+        check("reviewed: every distractor carries provenance",
+              all(x.get("provenance") for i in ids for x in d[i]))
+        check("reviewed: mask_question is false (MCQA wording held fixed)",
+              mask_q is False,
+              "the paper protocol keeps the original question and answer options "
+              "byte-identical across C0-C3; this build masked them")
     check("no duplicate articles inside an instance's pool",
-          all(len(set(C["c1"][i]["article_order"])) == 11 for i in ids))
+          all(len(set(map(str, C["c1"][i]["article_order"]))) == 11 for i in ids))
     check("GT position is not fixed across instances",
           len({C["c1"][i]["gt_position"] for i in ids}) > 5)
 

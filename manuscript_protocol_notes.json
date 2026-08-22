@@ -1,0 +1,68 @@
+{
+  "generated_utc": "2026-08-21T22:41:38Z",
+  "status": "open - manuscript sentence and implementation disagree; no code change made",
+  "items": [
+    {
+      "id": "c2_intervention_scope",
+      "status": "settled - implementation already matches",
+      "manuscript_should_say": "C2 removes temporal information from the evidence context while holding the MCQA task wording fixed. The question and answer choices are byte-identical to the original MTBench wording in C0, C1, C2 and C3.",
+      "c2_removes_temporal_information_from": [
+        "time-series timestamps (replaced by ordinal positions)",
+        "article publication metadata (the Published line is dropped)",
+        "temporal expressions inside the supplied article titles and bodies ([DATE] / [YEAR] / [QUARTER])"
+      ],
+      "c2_does_not_touch": [
+        "the MCQA question stem",
+        "the answer options",
+        "time-series numerical values",
+        "article identity, article order, ticker and company identity"
+      ],
+      "verified": {
+        "question_and_options_byte_identical_across_C0_C3": true,
+        "rendered_question_equals_original_mtbench_wording": true,
+        "build_used_mask_question_flag": false,
+        "checked_on": "out_locked50 (all 50 anchors) and out_reviewed_smoketest"
+      },
+      "known_consequence": "24 of the 50 inherited MTBench items carry an absolute date, month, year or quarter inside an answer option (0 carry one in the question stem), and 14 of those sit in the gold option. Under this protocol that wording is left intact, so C2 is 'temporal information removed from the evidence', not 'no temporal information anywhere in the prompt'. The manuscript should state the scope in those terms; c2_full_prompt_temporal_audit.json holds the per-instance record.",
+      "operational_guard": "build_conditions.py still exposes --mask-question, which WOULD alter the C2 question. It defaults off and was not used in any build. It must never be passed for the paper protocol; a hard guard can be added on request.",
+      "superseded_branch": "SUPERSEDED_MCQA_CANONICALIZATION.json"
+    },
+    {
+      "id": "anonymization",
+      "manuscript_says": "tickers/dates anonymized consistently across conditions",
+      "current_implementation": [
+        "real ticker identities are used throughout: the prompt header prints the real ticker in C0, C1, C2 and C3",
+        "real company names appear in article text in every condition",
+        "C0/C1/C3 print real publication timestamps; C2 removes publication timestamps and masks in-text temporal expressions to [DATE]/[YEAR]/[QUARTER]",
+        "no pseudonymization of tickers, company names or dates exists anywhere in the code base"
+      ],
+      "c1_c2_consistency": "C1 and C2 keep identical ticker and company identity; the only difference between them is temporal information, so the C1-vs-C2 contrast is not confounded by identity",
+      "why_this_is_less_severe_under_the_new_distractor_policy": "with paper-conformant same-ticker distractors, every article in the pool names the same company, so ticker identity can no longer be used to spot the ground-truth article; under the legacy cross-ticker sampler it could",
+      "residual_risk": "ticker plus company names plus price levels may still let a model recover the real episode from parametric knowledge in C2, which would understate the effect of removing timestamps",
+      "action_taken": "none - no pseudonymization was added, the experiment was not altered",
+      "required_follow_up": "either specify and implement the intended transformation (stable per-instance pseudonym applied identically to header, articles and question in all conditions) or revise the manuscript sentence to describe what the code actually does"
+    },
+    {
+      "id": "input_window_only",
+      "manuscript_says": "MTBench 7-day input_window only, no output_window",
+      "current_implementation": [
+        "verified: no output_window field is read anywhere in the repository",
+        "locked-50 windows span 4.24-7.00 days (median 6.27), 276-391 points",
+        "0/50 anchors contain a price point after the ground-truth publication time"
+      ],
+      "status": "consistent; the earlier strict post-publication audit branch that treated this as a defect is superseded (see SUPERSEDED_STRICT_AUDIT.json)",
+      "action_taken": "none required"
+    },
+    {
+      "id": "distractor_taxonomy",
+      "manuscript_says": "two distractor types: temporal aliasing and absence evidence",
+      "current_implementation": [
+        "build_conditions.py now supports --distractor-pool (reviewed mode) which consumes exactly 10 approved same-ticker distractors per anchor",
+        "the legacy cross-ticker sampler remains available and unchanged for backward compatibility, and is NOT paper-conformant",
+        "out_locked50/ was built in legacy mode; its C1/C2/C3 are not publishable as paper conditions (C0 is unaffected)"
+      ],
+      "status": "code now supports the paper; the reviewed pools are not yet locked",
+      "action_taken": "reviewed mode added and verified; no reviewed pool locked yet"
+    }
+  ]
+}

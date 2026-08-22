@@ -1,0 +1,82 @@
+{
+  "generated_utc": "2026-08-21T22:17:20Z",
+  "note": "the paper file itself is not present in this repository; the paper claims audited here are the ones stated in the task brief",
+  "n_points": 9,
+  "n_mismatches": 2,
+  "points": [
+    {
+      "point": "input_window only",
+      "paper_says": "the benchmark uses the MTBench 7-day input_window; output_window is not appended",
+      "code_does": "build_conditions.py renders ts_timestamps/ts_values verbatim from the anchor record; no output_window field is read anywhere in the repo. Locked-50 windows span 4.24-7.00 days (median 6.27), 276-391 points, and 0/50 contain a price point after the GT publication time",
+      "mismatch": false,
+      "affects_causal_contrast": false,
+      "recommended_action": "none"
+    },
+    {
+      "point": "10 distractors per instance",
+      "paper_says": "10 distractors per instance",
+      "code_does": "build_conditions.py --n-distractors defaults to 10; verify_conditions.py asserts C1 has 11 articles and C3 has 10",
+      "mismatch": false,
+      "affects_causal_contrast": false,
+      "recommended_action": "none"
+    },
+    {
+      "point": "all GT + distractors shown together in the prompt",
+      "paper_says": "all articles are shown directly in the prompt",
+      "code_does": "fmt_articles() renders every article of the pool into the News Context block",
+      "mismatch": false,
+      "affects_causal_contrast": false,
+      "recommended_action": "none"
+    },
+    {
+      "point": "randomized article order",
+      "paper_says": "article order is randomized",
+      "code_does": "one rng.shuffle per instance seeded by (seed, instance_id); GT lands in positions 1-11 across the set",
+      "mismatch": false,
+      "affects_causal_contrast": false,
+      "recommended_action": "none"
+    },
+    {
+      "point": "no retrieval step",
+      "paper_says": "no retrieval",
+      "code_does": "no retrieval anywhere; the pool is fixed at build time",
+      "mismatch": false,
+      "affects_causal_contrast": false,
+      "recommended_action": "none"
+    },
+    {
+      "point": "C1 vs C2 identical article identities and order",
+      "paper_says": "same content, timestamp availability is the only intervention",
+      "code_does": "C1/C2/C3 render from one ordered pool; verify_conditions.py re-derives from the rendered prompts that order is identical and that re-masking a C1 article reproduces the C2 article byte for byte",
+      "mismatch": false,
+      "affects_causal_contrast": false,
+      "recommended_action": "none"
+    },
+    {
+      "point": "C2 removes timestamps from metadata and in-text expressions",
+      "paper_says": "C2 removes publication timestamps and in-text expressions such as 'Q3 2023'",
+      "code_does": "C2 drops the Published line, converts the series to ordinal positions, and masks article text with temporal_mask.py ([DATE]/[YEAR]/[QUARTER]). Audited over 84 real pilot articles: 900 expressions masked, 0 residual year/quarter/ISO-date/month/weekday markers",
+      "mismatch": false,
+      "affects_causal_contrast": false,
+      "recommended_action": "none"
+    },
+    {
+      "point": "distractors follow the two paper types (temporal aliasing, absence evidence)",
+      "paper_says": "temporal aliasing = same ticker, same event type, >=90 days offset; absence evidence = topically adjacent, no corresponding target event",
+      "code_does": "build_conditions.py samples the 10 distractors from the OTHER anchors' GT articles and explicitly EXCLUDES same-ticker articles; there is no type taxonomy. verify_conditions.py even asserts 'no distractor shares the instance's ticker', which encodes the opposite of the paper's Type A requirement",
+      "mismatch": true,
+      "affects_causal_contrast": true,
+      "why": "with cross-ticker distractors the ground-truth article is the only one that mentions the anchor company, so it can be identified without using any timestamp; that shrinks the C1-vs-C2 gap the paper attributes to timestamp availability and makes C3 an easy 'no evidence' detection",
+      "recommended_action": "add a --distractor-pool option to build_conditions.py that reads a reviewed per-anchor pool (article id, text, published_utc) instead of sampling, and flip the verifier check from 'no distractor shares the ticker' to 'every distractor shares the ticker' (parameterised, so legacy builds still verify)"
+    },
+    {
+      "point": "tickers/dates anonymized consistently across conditions",
+      "paper_says": "tickers/dates are anonymized consistently across conditions",
+      "code_does": "no anonymization exists anywhere in the repo. The prompt header prints the real ticker in C0-C3; C0/C1/C3 print real publication timestamps and real dates in article text; C2 masks dates but still prints the real ticker and real company names in the articles and the question",
+      "mismatch": true,
+      "affects_causal_contrast": true,
+      "why": "C2 is meant to remove temporal information, but ticker plus company names plus price levels still identify the real episode, so a model can recover the date from parametric knowledge; the C1-C2 difference then understates the effect of removing timestamps",
+      "recommended_action": "either implement a consistent anonymization pass (stable per-instance pseudonym for the ticker and company aliases, applied identically to the header, articles and question in every condition) or amend the paper sentence to match the implementation; do not leave the two out of step"
+    }
+  ]
+}

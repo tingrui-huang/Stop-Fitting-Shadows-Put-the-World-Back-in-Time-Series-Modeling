@@ -109,6 +109,74 @@ def sha(obj):
     return hashlib.sha256(repr(obj).encode("utf-8")).hexdigest()[:16]
 
 
+def load_reviewed_pool(path, n_expected, anchor_ids):
+    """Read the reviewed per-anchor distractor pool (paper mode).
+
+    Articles are used exactly as approved: the text and the publication
+    timestamp come from the pool row, or - when the row carries only an id -
+    from the local corpus copy.  Nothing is sampled, reordered or rewritten
+    here; the only later step is the single deterministic shuffle shared by
+    C1/C2/C3.
+    """
+    with open(path, encoding="utf-8") as f:
+        rows = [json.loads(l) for l in f if l.strip()]
+
+    need_corpus = [r for r in rows if not r.get("distractor_content")]
+    corpus = {}
+    if need_corpus:
+        import pandas as pd
+        wanted = {r["distractor_article_id"] for r in need_corpus}
+        df = pd.read_parquet("data/MTBench_finance_news.parquet",
+                             columns=["id", "title", "content", "published_utc",
+                                      "tickers", "article_url"])
+        for row in df[df["id"].isin(wanted)].itertuples(index=False):
+            corpus[row.id] = row
+
+    by_anchor = {}
+    for r in rows:
+        aid = r["distractor_article_id"]
+        if r.get("distractor_content"):
+            title, text = r["distractor_title"], r["distractor_content"]
+            published = r["distractor_published_utc"]
+        else:
+            src = corpus.get(aid)
+            if src is None:
+                raise SystemExit("reviewed pool: article %s for anchor %s is not in "
+                                 "the local corpus and carries no text"
+                                 % (aid, r["anchor_instance_id"]))
+            title, text = src.title, src.content or ""
+            published = (r.get("distractor_published_utc")
+                         or src.published_utc.strftime("%Y-%m-%d %H:%M:%S"))
+        by_anchor.setdefault(r["anchor_instance_id"], []).append({
+            "source_id": aid,
+            "ticker": r.get("distractor_ticker"),
+            "published": published,
+            "title": title,
+            "text": text,
+            "distractor_type": r.get("distractor_type"),
+            "event_match_tier": r.get("event_match_tier"),
+            "offset_days": r.get("offset_days"),
+            "alias_direction": r.get("alias_direction"),
+            "provenance": r.get("provenance"),
+        })
+
+    problems = []
+    for iid in sorted(anchor_ids):
+        got = by_anchor.get(iid, [])
+        if len(got) != n_expected:
+            problems.append("anchor %s has %d approved distractors, expected %d"
+                            % (iid, len(got), n_expected))
+        if len({a["source_id"] for a in got}) != len(got):
+            problems.append("anchor %s has duplicate distractor ids" % iid)
+    extra = sorted(set(by_anchor) - set(anchor_ids))
+    if extra:
+        problems.append("pool covers anchors outside the dataset: %s" % extra)
+    if problems:
+        raise SystemExit("reviewed distractor pool is not usable:\n  "
+                         + "\n  ".join(problems))
+    return by_anchor
+
+
 # --------------------------------------------------------------------------- #
 # build
 # --------------------------------------------------------------------------- #
@@ -118,6 +186,14 @@ def main():
     ap.add_argument("--out", default="out")
     ap.add_argument("--seed", default="20240101")
     ap.add_argument("--n-distractors", type=int, default=10)
+    ap.add_argument("--distractor-pool", default=None,
+                    help="JSONL of REVIEWED per-anchor distractors (paper mode). "
+                         "Each line needs anchor_instance_id, distractor_article_id, "
+                         "distractor_published_utc and either the article text or a "
+                         "corpus id resolvable in data/MTBench_finance_news.parquet. "
+                         "Exactly --n-distractors approved rows per anchor are "
+                         "required; nothing is resampled. Without this flag the "
+                         "legacy sampler is used unchanged.")
     ap.add_argument("--mask-question", action="store_true",
                     help="also temporally mask the MCQA question in C2. OFF by "
                          "default: the spec pins the question as invariant across "
@@ -129,6 +205,18 @@ def main():
 
     with open(args.data, encoding="utf-8") as f:
         rows = json.load(f)
+
+    if args.distractor_pool and args.mask_question:
+        raise SystemExit(
+            "--mask-question cannot be combined with --distractor-pool.\n"
+            "The paper protocol holds the original MTBench question and answer "
+            "options byte-identical across C0/C1/C2/C3; the C2 intervention applies "
+            "only to the evidence context (time-series timestamps, article "
+            "publication metadata, temporal expressions inside the articles).\n"
+            "Re-run without --mask-question.")
+
+    reviewed = load_reviewed_pool(args.distractor_pool, args.n_distractors,
+                                  {r["instance_id"] for r in rows})         if args.distractor_pool else None
 
     # canonical article record per instance (this is also the distractor pool)
     pool = {}
@@ -151,20 +239,24 @@ def main():
         iid, ticker = r["instance_id"], r["ticker"]
         gt = pool[iid]
 
-        # ---- distractor sampling: deterministic per instance, never same ticker
         rng = random.Random("%s:%d" % (args.seed, iid))
-        candidates = sorted(
-            (a for a in pool.values()
-             if a["source_id"] != iid and a["ticker"] != ticker),
-            key=lambda a: a["source_id"],
-        )
-        distractors = rng.sample(candidates, args.n_distractors)
+        if reviewed is not None:
+            # ---- reviewed mode: use exactly the approved articles, no resampling
+            distractors = reviewed[iid]
+        else:
+            # ---- legacy sampling: deterministic per instance, never same ticker
+            candidates = sorted(
+                (a for a in pool.values()
+                 if a["source_id"] != gt["source_id"] and a["ticker"] != ticker),
+                key=lambda a: a["source_id"],
+            )
+            distractors = rng.sample(candidates, args.n_distractors)
 
         # ---- ONE shuffle, reused verbatim by C1 / C2 / C3
         ordered = distractors + [gt]
         rng.shuffle(ordered)
         order_ids = [a["source_id"] for a in ordered]
-        gt_position = order_ids.index(iid) + 1
+        gt_position = order_ids.index(gt["source_id"]) + 1
 
         ts_stamped = fmt_ts_timestamped(r["ts_timestamps"], r["ts_values"])
         ts_positional = fmt_ts_positional(r["ts_values"])
@@ -179,7 +271,7 @@ def main():
             masked.append({"source_id": a["source_id"], "title": t,
                            "text": x, "published": None})
 
-        c3_articles = [a for a in ordered if a["source_id"] != iid]
+        c3_articles = [a for a in ordered if a["source_id"] != gt["source_id"]]
 
         news = {
             "c0": fmt_articles([gt], True),
@@ -189,8 +281,9 @@ def main():
         }
         ts_block = {"c0": ts_stamped, "c1": ts_stamped,
                     "c2": ts_positional, "c3": ts_stamped}
-        orders = {"c0": [iid], "c1": order_ids, "c2": order_ids,
-                  "c3": [i for i in order_ids if i != iid]}
+        gt_id = gt["source_id"]
+        orders = {"c0": [gt_id], "c1": order_ids, "c2": order_ids,
+                  "c3": [i for i in order_ids if i != gt_id]}
 
         question = r["mcqa_question"].strip()
         q_masked, _ = mask_temporal(question)
@@ -211,7 +304,7 @@ def main():
                 "answer": r["mcqa_answer"],
                 "n_articles": len(orders[cond]),
                 "article_order": orders[cond],
-                "gt_source_id": None if cond == "c3" else iid,
+                "gt_source_id": None if cond == "c3" else gt["source_id"],
                 "gt_position": (1 if cond == "c0" else
                                 gt_position if cond in ("c1", "c2") else None),
                 "timestamps_present": cond != "c2",
@@ -238,6 +331,15 @@ def main():
             "ts_value_hash": sha(["%.2f" % v for v in r["ts_values"]]),
             "question_hash": sha(r["mcqa_question"]),
             "article_pool_hash": sha(order_ids),
+            "distractors": [
+                {"article_id": a["source_id"], "ticker": a["ticker"],
+                 "published_utc": a["published"],
+                 "distractor_type": a.get("distractor_type"),
+                 "event_match_tier": a.get("event_match_tier"),
+                 "offset_days": a.get("offset_days"),
+                 "alias_direction": a.get("alias_direction"),
+                 "provenance": a.get("provenance")}
+                for a in ordered if a["source_id"] != gt["source_id"]],
         })
 
     for f in files.values():
@@ -245,8 +347,13 @@ def main():
     with open(os.path.join(args.out, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump({"seed": args.seed, "n_distractors": args.n_distractors,
                    "mask_question": args.mask_question,
+                   "distractor_mode": "reviewed" if reviewed else "legacy",
+                   "distractor_pool": args.distractor_pool,
                    "instances": manifest}, f, indent=2)
 
+    print("distractor mode: %s%s"
+          % ("reviewed" if reviewed else "legacy (cross-ticker sampling)",
+             " from %s" % args.distractor_pool if reviewed else ""))
     print("wrote %d instances x 4 conditions to %s/" % (len(rows), args.out))
     print("mean temporal masks per C2 instance: %.1f"
           % (sum(m["n_temporal_masks_c2"] for m in manifest) / len(manifest)))
