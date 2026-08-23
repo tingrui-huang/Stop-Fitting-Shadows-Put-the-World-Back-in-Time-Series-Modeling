@@ -15,6 +15,69 @@ import re
 import urllib.error
 import urllib.request
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# ---------------------------------------------------------------------------
+# run target: which model, and which output tree it writes to
+# ---------------------------------------------------------------------------
+# The defaults reproduce the original Qwen3.6 run exactly: model
+# Qwen/Qwen3.6-35B-A3B writing under results/qwen36/.  A second model is run by
+# naming it and giving it its own tag, e.g.
+#     --model Qwen/Qwen3.5-9B --run-tag qwen35_9b   ->  results/qwen35_9b/
+# The run tag only selects a directory; it never reaches a prompt or a label.
+DEFAULT_MODEL = "Qwen/Qwen3.6-35B-A3B"
+DEFAULT_RUN_TAG = "qwen36"
+RUN_TAG_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def check_run_tag(run_tag):
+    if not RUN_TAG_OK.match(run_tag or ""):
+        raise SystemExit("--run-tag must match %s (got %r)"
+                         % (RUN_TAG_OK.pattern, run_tag))
+    return run_tag
+
+
+def out_root(run_tag):
+    return os.path.join(ROOT, "results", check_run_tag(run_tag))
+
+
+def raw_dir(run_tag, cond):
+    return os.path.join(out_root(run_tag), "%s_raw" % cond.lower())
+
+
+def result_path(run_tag, cond, instance_id):
+    return os.path.join(raw_dir(run_tag, cond), "%d.json" % instance_id)
+
+
+def model_label(model_id):
+    """'Qwen/Qwen3.6-35B-A3B' -> 'qwen3.6-35b-a3b' (the label used for scoring).
+
+    Chosen so the default model reproduces the label the pipeline already used.
+    """
+    return str(model_id).rsplit("/", 1)[-1].lower()
+
+
+def add_target_args(ap, reads_only=False):
+    """--model / --run-tag, defined once and shared by every entry point.
+
+    reads_only=True is for tools that do not call the model (the collector).
+    There --model is optional: when given it is cross-checked against the model
+    id already recorded in the raw files, and when omitted the label is derived
+    from those files, so the collector never has to be told which model ran.
+    """
+    if reads_only:
+        ap.add_argument("--model", default=None,
+                        help="optional: cross-check that the raw files were "
+                             "produced by this model, and use it for the "
+                             "scoring label (default: derive from the raw files)")
+    else:
+        ap.add_argument("--model", default=DEFAULT_MODEL,
+                        help="model id sent to the server and recorded in every "
+                             "result (default: %s)" % DEFAULT_MODEL)
+    ap.add_argument("--run-tag", type=check_run_tag, default=DEFAULT_RUN_TAG,
+                    help="output tree results/<run-tag>/ (default: %s)"
+                         % DEFAULT_RUN_TAG)
+
 # vLLM exposes the thinking trace under a field whose name has changed across
 # releases.  Rather than assume one, probe in order and record which was used.
 REASONING_KEYS = ("reasoning_content", "reasoning", "thinking",

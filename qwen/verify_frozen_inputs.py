@@ -12,6 +12,7 @@ Usage
   python qwen/verify_frozen_inputs.py --write-baseline   # once, before running
   python qwen/verify_frozen_inputs.py                    # before/after any run
   python qwen/verify_frozen_inputs.py --check-results    # also audit sent hashes
+  python qwen/verify_frozen_inputs.py --check-results --run-tag qwen36 qwen35_9b
 """
 
 import argparse
@@ -21,7 +22,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from qwen_common import sha256_file  # noqa: E402
+from qwen_common import DEFAULT_RUN_TAG, out_root, sha256_file  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(ROOT, "qwen", "frozen_inputs_baseline.json")
@@ -40,11 +41,20 @@ def fingerprint():
     return fp
 
 
-def check_results(fp):
+def check_results(fp, run_tags):
     """Every saved Qwen result must name the frozen text it was given."""
     bad, n = [], 0
-    root = os.path.join(ROOT, "results", "qwen36")
     sys_sha = fp["prompts/system.txt"]
+    for run_tag in run_tags:
+        root = out_root(run_tag)
+        n_tag, bad_tag = _check_tree(fp, root, sys_sha, run_tag)
+        n += n_tag
+        bad += bad_tag
+    return n, bad
+
+
+def _check_tree(fp, root, sys_sha, run_tag):
+    bad, n = [], 0
     for c in CONDS:
         d = os.path.join(root, "%s_raw" % c)
         if not os.path.isdir(d):
@@ -55,16 +65,17 @@ def check_results(fp):
             n += 1
             with open(os.path.join(d, name), encoding="utf-8") as f:
                 rec = json.load(f)
+            tag = "%s/%s/%s" % (run_tag, c, name)
             want = fp.get((rec.get("prompt_file") or "").replace("\\", "/"))
             if want is None:
-                bad.append((name, "prompt_file %r is not a frozen input"
+                bad.append((tag, "prompt_file %r is not a frozen input"
                             % rec.get("prompt_file")))
             elif rec.get("prompt_sha256") != want:
-                bad.append((name, "prompt sha256 sent does not match the frozen "
-                                  "file on disk"))
+                bad.append((tag, "prompt sha256 sent does not match the frozen "
+                                 "file on disk"))
             if rec.get("system_prompt_sha256") != sys_sha:
-                bad.append((name, "system prompt sha256 sent does not match "
-                                  "prompts/system.txt"))
+                bad.append((tag, "system prompt sha256 sent does not match "
+                                 "prompts/system.txt"))
     return n, bad
 
 
@@ -72,6 +83,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--write-baseline", action="store_true")
     ap.add_argument("--check-results", action="store_true")
+    ap.add_argument("--run-tag", nargs="+", default=[DEFAULT_RUN_TAG],
+                    help="which results/<run-tag>/ trees --check-results should "
+                         "audit (default: %s)" % DEFAULT_RUN_TAG)
     args = ap.parse_args()
 
     fp = fingerprint()
@@ -102,8 +116,9 @@ def main():
                     else "FROZEN INPUTS DIFFER FROM BASELINE"))
 
     if args.check_results:
-        n, bad = check_results(fp)
-        print("\nsaved Qwen results audited: %d" % n)
+        n, bad = check_results(fp, args.run_tag)
+        print("\nsaved Qwen results audited: %d across %s"
+              % (n, ", ".join("results/%s/" % t for t in args.run_tag)))
         for name, why in bad[:20]:
             print("  MISMATCH %s: %s" % (name, why))
         print("  %s" % ("every result was produced from the frozen text"

@@ -16,6 +16,7 @@ about accuracy, and this is a plumbing test.
 
 Usage:  python qwen/smoke_test_one.py
         python qwen/smoke_test_one.py --instance-id 18 --base-url http://127.0.0.1:8000/v1
+        python qwen/smoke_test_one.py --model Qwen/Qwen3.5-9B --run-tag qwen35_9b
 """
 
 import argparse
@@ -28,9 +29,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from collect_c0_results import extract_json, validate  # noqa: E402
-from qwen_common import (ApiError, build_payload, chat_completion,  # noqa: E402
-                         load_index, read_prompt, result_record, sha256_file,
-                         sha256_text)
+from qwen_common import (ApiError, add_target_args, build_payload,  # noqa: E402
+                         chat_completion, load_index, out_root, read_prompt,
+                         result_record, sha256_file, sha256_text)
 
 OK, BAD = "  [ok]  ", "  [FAIL]"
 
@@ -45,7 +46,7 @@ def main():
     ap.add_argument("--instance-id", type=int, default=15)
     ap.add_argument("--condition", default="C0", choices=("C0", "C1", "C2", "C3"))
     ap.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
-    ap.add_argument("--model", default="Qwen/Qwen3.6-35B-A3B")
+    add_target_args(ap)
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--top-p", type=float, default=1.0)
     ap.add_argument("--max-tokens", type=int, default=16384)
@@ -62,6 +63,7 @@ def main():
     prompt_path = os.path.join(cli, "%d.txt" % args.instance_id)
     sys_path = os.path.join(ROOT, "prompts", "system.txt")
     print("smoke test: %s instance %d" % (args.condition, args.instance_id))
+    print("            model %s  ->  results/%s/" % (args.model, args.run_tag))
 
     # ---- 1 frozen prompt --------------------------------------------------
     if not os.path.exists(prompt_path):
@@ -144,7 +146,7 @@ def main():
              "fields")
 
     # ---- 6 saved and reloadable -------------------------------------------
-    out_dir = os.path.join(ROOT, "results", "qwen36", "smoke_test")
+    out_dir = os.path.join(out_root(args.run_tag), "smoke_test")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "%s_%d.json" % (cond, args.instance_id))
     with open(out_path, "w", encoding="utf-8", newline="\n") as f:

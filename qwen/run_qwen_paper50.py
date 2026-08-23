@@ -1,4 +1,8 @@
-"""Run the frozen Paper50 prompts through a locally served Qwen3.6 model.
+"""Run the frozen Paper50 prompts through a locally served Qwen model.
+
+Model-agnostic: --model names the model sent to the server and recorded in
+every result, --run-tag names the output tree.  The defaults reproduce the
+original run exactly (Qwen/Qwen3.6-35B-A3B -> results/qwen36/).
 
 The prompts under out_paper50_reviewed/<cond>_cli/ are frozen experimental
 inputs.  This script only ever reads them, byte for byte, and sends exactly that
@@ -6,8 +10,8 @@ text as the user message.  prompts/system.txt is sent unchanged as the system
 message.  Nothing under results/paper50_* (the Sonnet runs) is touched.
 
 One structured JSON per instance is written to
-results/qwen36/<cond>_raw/<instance_id>.json, holding the thinking trace and the
-final answer as separate fields plus the full API response for later audit.
+results/<run-tag>/<cond>_raw/<instance_id>.json, holding the thinking trace and
+the final answer as separate fields plus the full API response for later audit.
 
 Resume:  an instance whose result file already exists is skipped, so an
 interrupted job can simply be relaunched.  --redo-malformed re-runs only those
@@ -23,6 +27,7 @@ Usage
   python qwen/run_qwen_paper50.py --conditions C0
   python qwen/run_qwen_paper50.py --conditions C1 C2 C3 --balanced
   python qwen/run_qwen_paper50.py --conditions C0 --only 15 --dry-run
+  python qwen/run_qwen_paper50.py --conditions C0       --model Qwen/Qwen3.5-9B --run-tag qwen35_9b
 """
 
 import argparse
@@ -33,27 +38,19 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from qwen_common import (ApiError, build_payload, chat_completion,  # noqa: E402
-                         load_index, read_prompt, result_record, sha256_file,
+from qwen_common import (ApiError, add_target_args, build_payload,  # noqa: E402
+                         chat_completion, load_index, out_root, raw_dir,
+                         read_prompt, result_path, result_record, sha256_file,
                          sha256_text)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLI_DIR = os.path.join(ROOT, "out_paper50_reviewed", "%s_cli")
 SYSTEM_PROMPT = os.path.join(ROOT, "prompts", "system.txt")
-OUT_ROOT = os.path.join(ROOT, "results", "qwen36")
 ROTATIONS = (("C1", "C2", "C3"), ("C2", "C3", "C1"), ("C3", "C1", "C2"))
 
 
 def utcnow():
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def raw_dir(cond):
-    return os.path.join(OUT_ROOT, "%s_raw" % cond.lower())
-
-
-def result_path(cond, iid):
-    return os.path.join(raw_dir(cond), "%d.json" % iid)
 
 
 def final_json_ok(content):
@@ -101,7 +98,7 @@ def main():
     ap.add_argument("--conditions", nargs="+", required=True,
                     choices=("C0", "C1", "C2", "C3"))
     ap.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
-    ap.add_argument("--model", default="Qwen/Qwen3.6-35B-A3B")
+    add_target_args(ap)
     ap.add_argument("--balanced", action="store_true",
                     help="interleave C1/C2/C3 with the rotation "
                          "C1,C2,C3 / C2,C3,C1 / C3,C1,C2 by instance rank")
@@ -146,12 +143,14 @@ def main():
         print("  ... (%d total). nothing sent, nothing written." % len(plan))
         return
 
-    os.makedirs(OUT_ROOT, exist_ok=True)
+    os.makedirs(out_root(args.run_tag), exist_ok=True)
     for c in args.conditions:
-        os.makedirs(raw_dir(c), exist_ok=True)
+        os.makedirs(raw_dir(args.run_tag, c), exist_ok=True)
 
     meta = {
-        "model": args.model, "base_url": args.base_url,
+        "model": args.model, "run_tag": args.run_tag,
+        "output_root": os.path.relpath(out_root(args.run_tag), ROOT),
+        "base_url": args.base_url,
         "conditions": args.conditions, "balanced_order": bool(args.balanced),
         "rotation": [list(r) for r in ROTATIONS] if args.balanced else None,
         "order_balancing_note":
@@ -166,7 +165,7 @@ def main():
         "plan": [{"instance_id": i, "condition": c} for i, c in plan],
         "started_utc": utcnow(),
     }
-    mpath = os.path.join(OUT_ROOT, "run_metadata_%s.json"
+    mpath = os.path.join(out_root(args.run_tag), "run_metadata_%s.json"
                          % "_".join(c.lower() for c in args.conditions))
     with open(mpath, "w", encoding="utf-8", newline="\n") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
@@ -175,7 +174,7 @@ def main():
     done = skipped = failed = 0
     failures = []
     for i, cond in plan:
-        out_path = result_path(cond, i)
+        out_path = result_path(args.run_tag, cond, i)
         if os.path.exists(out_path):
             if not args.redo_malformed:
                 skipped += 1
@@ -245,7 +244,7 @@ def main():
                  "  TRUNCATED" if rec["truncated"] else ""))
 
     if failures:
-        fpath = os.path.join(OUT_ROOT, "failures_%s.jsonl"
+        fpath = os.path.join(out_root(args.run_tag), "failures_%s.jsonl"
                              % "_".join(c.lower() for c in args.conditions))
         with open(fpath, "a", encoding="utf-8", newline="\n") as f:
             for x in failures:
