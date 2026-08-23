@@ -1,0 +1,772 @@
+{
+  "scope": "post-hoc error analysis of the frozen Sonnet-5 C1/C2 results; no benchmark file, distractor, mask, option or model output was modified, and no inference was run",
+  "aggregate": {
+    "c1_correct": 44,
+    "c2_correct": 46,
+    "c1_accuracy": 0.88,
+    "c2_accuracy": 0.92
+  },
+  "transition_matrix": {
+    "BOTH_CORRECT": 42,
+    "C1_CORRECT_C2_WRONG": 2,
+    "C1_WRONG_C2_CORRECT": 4,
+    "BOTH_WRONG": 2
+  },
+  "group_instance_ids": {
+    "BOTH_CORRECT": [
+      15,
+      35,
+      37,
+      41,
+      49,
+      50,
+      51,
+      53,
+      55,
+      61,
+      66,
+      98,
+      120,
+      123,
+      124,
+      133,
+      140,
+      147,
+      148,
+      172,
+      182,
+      191,
+      215,
+      233,
+      234,
+      256,
+      268,
+      275,
+      288,
+      295,
+      303,
+      313,
+      317,
+      320,
+      334,
+      353,
+      371,
+      405,
+      441,
+      453,
+      454,
+      484
+    ],
+    "C1_CORRECT_C2_WRONG": [
+      252,
+      274
+    ],
+    "C1_WRONG_C2_CORRECT": [
+      18,
+      96,
+      176,
+      265
+    ],
+    "BOTH_WRONG": [
+      47,
+      201
+    ]
+  },
+  "discordant_instance_ids": [
+    18,
+    96,
+    176,
+    252,
+    265,
+    274
+  ],
+  "cases": [
+    {
+      "instance_id": 18,
+      "ticker": "LULU",
+      "transition": "C1_WRONG_C2_CORRECT",
+      "gold_answer": "C",
+      "c1_answer": "D",
+      "c1_confidence": 0.72,
+      "c2_answer": "C",
+      "c2_confidence": 0.65,
+      "task3_temporal_use": {
+        "C1": {
+          "temporal_use": "EXPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale states 'rising from ~316 to ~319 in the hours leading up to the 16:10 article publication on June 2, 2021' and 'the series ends right at the publish time'",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only; no alias used",
+          "reliance": "TEMPORAL_GATING_VISIBLE"
+        },
+        "C2": {
+          "temporal_use": "NO_VISIBLE_TEMPORAL_USE",
+          "observable_basis": "rationale describes the series only by shape - 'mild upward drift for much of the series before a later decline' - and names no date, publication time or period",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only",
+          "reliance": "SEMANTIC_MATCH_DOMINANT"
+        }
+      },
+      "task4_flip_explanation": "C1_TEMPORAL_HEURISTIC_MISLED",
+      "task4_secondary_mechanism": null,
+      "interpretation_confidence": "HIGH",
+      "narrative": "The window ends at 2021-06-02 16:10:00 and the ground-truth article publishes at 16:10:05, so the series contains no post-publication point at all. In C1 the model saw that alignment, concluded that the 'sharp drop following the news' asserted by option D is not observable, and answered D. That reasoning is only available when timestamps are visible, and it steered the model onto a non-gold option. In C2 the same check is impossible, so the model evaluated option C against the shape of the whole series and answered C, the gold. The gain here is not evidence that the model reasons better without time; it is evidence that precise temporal alignment can expose an answer option the benchmark's gold label does not treat as the intended one.",
+      "task5_exposure": {
+        "n_type_a": 7,
+        "n_type_b": 3,
+        "type_a_tiers": {
+          "exact": 7,
+          "family": 0,
+          "manual_rescue": 0
+        },
+        "type_a_direction": {
+          "historical": 0,
+          "future": 7
+        },
+        "type_a_abs_offset_days": {
+          "min": 112.82,
+          "median": 351.23,
+          "max": 565.78
+        },
+        "type_b_relation_tiers": {
+          "same_ticker": 3
+        }
+      },
+      "task6_masking_side_effect": {
+        "n_textual_changes": 125,
+        "n_flagged": 0,
+        "verdict": "NO_NON_TEMPORAL_MASKING_SIDE_EFFECT_FOUND"
+      },
+      "invariants_verified": {
+        "question_and_options_identical": true,
+        "ticker_identical": true,
+        "gold_answer_identical": true,
+        "ts_numeric_values_identical": true,
+        "ts_n_points_identical": true,
+        "article_identities_and_order_identical": true,
+        "n_articles_identical": true,
+        "c2_reproduces_c1_under_the_masker": true,
+        "c1_shows_publication_timestamps": true,
+        "c2_shows_no_publication_timestamps": true,
+        "c1_ts_shows_absolute_timestamps": true,
+        "c2_ts_shows_ordinal_positions_only": true
+      }
+    },
+    {
+      "instance_id": 96,
+      "ticker": "WMT",
+      "transition": "C1_WRONG_C2_CORRECT",
+      "gold_answer": "D",
+      "c1_answer": "C",
+      "c1_confidence": 0.75,
+      "c2_answer": "D",
+      "c2_confidence": 0.7,
+      "task3_temporal_use": {
+        "C1": {
+          "temporal_use": "EXPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale states 'the price ending around $148.54 on 2021-11-11 (last data point)' - it dates the final observation and checks option C's 'following the news publication on November 12' against it",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only",
+          "reliance": "TEMPORAL_GATING_VISIBLE"
+        },
+        "C2": {
+          "temporal_use": "NO_VISIBLE_TEMPORAL_USE",
+          "observable_basis": "rationale compares options on trend shape only ('trending downward from ~150.6 to ~148.5') and returns an empty evidence_articles list",
+          "evidence_class": "NO_CLEAR_ARTICLE",
+          "evidence_admissible": null,
+          "admissibility_note": "no article cited at all",
+          "reliance": "SEMANTIC_MATCH_DOMINANT"
+        }
+      },
+      "task4_flip_explanation": "C1_TEMPORAL_HEURISTIC_MISLED",
+      "task4_secondary_mechanism": null,
+      "interpretation_confidence": "HIGH",
+      "narrative": "The window ends 2021-11-11 20:55, 17.4 hours before the ground-truth article publishes. Option C asserts a decline 'following the news publication on November 12' - a claim the series cannot cover. With timestamps visible, C1 detected exactly that mismatch and answered C. With timestamps removed, the date in option C became uncheckable, the model stopped trying to verify it, and picked D as the speculative statement, which is the gold. Note the protocol asymmetry this case exposes: the answer options keep their absolute dates in C2 (this is one of 26/50 instances whose MCQA text carries absolute temporal tokens) while the evidence context has none, so a date-anchored option can no longer be checked against anything.",
+      "task5_exposure": {
+        "n_type_a": 7,
+        "n_type_b": 3,
+        "type_a_tiers": {
+          "exact": 7,
+          "family": 0,
+          "manual_rescue": 0
+        },
+        "type_a_direction": {
+          "historical": 1,
+          "future": 6
+        },
+        "type_a_abs_offset_days": {
+          "min": 97.41,
+          "median": 263.95,
+          "max": 586.31
+        },
+        "type_b_relation_tiers": {
+          "anchor_company_named": 3
+        }
+      },
+      "task6_masking_side_effect": {
+        "n_textual_changes": 60,
+        "n_flagged": 0,
+        "verdict": "NO_NON_TEMPORAL_MASKING_SIDE_EFFECT_FOUND"
+      },
+      "invariants_verified": {
+        "question_and_options_identical": true,
+        "ticker_identical": true,
+        "gold_answer_identical": true,
+        "ts_numeric_values_identical": true,
+        "ts_n_points_identical": true,
+        "article_identities_and_order_identical": true,
+        "n_articles_identical": true,
+        "c2_reproduces_c1_under_the_masker": true,
+        "c1_shows_publication_timestamps": true,
+        "c2_shows_no_publication_timestamps": true,
+        "c1_ts_shows_absolute_timestamps": true,
+        "c2_ts_shows_ordinal_positions_only": true
+      }
+    },
+    {
+      "instance_id": 176,
+      "ticker": "PLD",
+      "transition": "C1_WRONG_C2_CORRECT",
+      "gold_answer": "A",
+      "c1_answer": "C",
+      "c1_confidence": 0.62,
+      "c2_answer": "A",
+      "c2_confidence": 0.72,
+      "task3_temporal_use": {
+        "C1": {
+          "temporal_use": "EXPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale localises the dip - 'the stock's actual intraday low (on 2021-10-01, the session most consistent with a dip-then-rebound pattern)'",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only",
+          "reliance": "MIXED"
+        },
+        "C2": {
+          "temporal_use": "IMPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale reasons over ordinal positions and a before/after split - 'a sharp decline beginning around position 155-180', 'the post-news average (~126.37) is actually lower than the pre-news average (~126.63)' - but fixes the event by semantic match: 'aligns with the earnings-day sell-off described in Article 3'",
+          "evidence_class": "TYPE_A_TEMPORAL_ALIAS",
+          "evidence_admissible": false,
+          "admissibility_note": "Article 3 is a future temporal alias at +650.2 days (published 2023-07-18) describing a July 2023 session; the window runs 2021-09-29 to 2021-10-05, so it cannot describe any move in it",
+          "reliance": "SEMANTIC_MATCH_DOMINANT"
+        }
+      },
+      "task4_flip_explanation": "C2_SEMANTIC_SHORTCUT_RECOVERED",
+      "task4_secondary_mechanism": null,
+      "interpretation_confidence": "HIGH",
+      "narrative": "C2 produced the gold answer, but its stated reason attributes the price drop in the window to an article published 650 days later. The answer is scored correct while the evidential chain is temporally invalid. C1, which could see that Article 3 is dated 2023, never cited it, and instead lost the item on a numeric-precision argument about option C (124.29 vs the stated 124.57). This is the clearest case in the set where accuracy improves while grounding degrades.",
+      "task5_exposure": {
+        "n_type_a": 6,
+        "n_type_b": 4,
+        "type_a_tiers": {
+          "exact": 0,
+          "family": 6,
+          "manual_rescue": 0
+        },
+        "type_a_direction": {
+          "historical": 0,
+          "future": 6
+        },
+        "type_a_abs_offset_days": {
+          "min": 230.4,
+          "median": 650.09,
+          "max": 672.93
+        },
+        "type_b_relation_tiers": {
+          "same_ticker": 4
+        }
+      },
+      "task6_masking_side_effect": {
+        "n_textual_changes": 93,
+        "n_flagged": 0,
+        "verdict": "NO_NON_TEMPORAL_MASKING_SIDE_EFFECT_FOUND"
+      },
+      "invariants_verified": {
+        "question_and_options_identical": true,
+        "ticker_identical": true,
+        "gold_answer_identical": true,
+        "ts_numeric_values_identical": true,
+        "ts_n_points_identical": true,
+        "article_identities_and_order_identical": true,
+        "n_articles_identical": true,
+        "c2_reproduces_c1_under_the_masker": true,
+        "c1_shows_publication_timestamps": true,
+        "c2_shows_no_publication_timestamps": true,
+        "c1_ts_shows_absolute_timestamps": true,
+        "c2_ts_shows_ordinal_positions_only": true
+      }
+    },
+    {
+      "instance_id": 252,
+      "ticker": "GILD",
+      "transition": "C1_CORRECT_C2_WRONG",
+      "gold_answer": "D",
+      "c1_answer": "D",
+      "c1_confidence": 0.6,
+      "c2_answer": "B",
+      "c2_confidence": 0.55,
+      "task3_temporal_use": {
+        "C1": {
+          "temporal_use": "EXPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale anchors the article to the series - 'Article 11 (Jan 26) ... but the price series around Jan 23-25 shows GILD fluctuating in a narrow ~$82-84 range'",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only",
+          "reliance": "TEMPORAL_GATING_VISIBLE"
+        },
+        "C2": {
+          "temporal_use": "NO_VISIBLE_TEMPORAL_USE",
+          "observable_basis": "rationale states the anchor is missing: no 'skepticism/optimism reaction tied to a specific FDA news date', and describes only 'price oscillating narrowly between roughly $82-$84 throughout the entire period'",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only",
+          "reliance": "SEMANTIC_MATCH_DOMINANT"
+        }
+      },
+      "task4_flip_explanation": "CONSISTENT_WITH_TIMESTAMP_HELP",
+      "task4_secondary_mechanism": null,
+      "interpretation_confidence": "HIGH",
+      "narrative": "Options B and D describe the same price behaviour and differ only in whether it is read relative to the announcement instant: B calls it stability, D calls it a muted reaction to the news. The ground-truth article itself never names the date - it says 'Before the end of last year' - so the publication timestamp is the only thing that ties the series to the announcement. C1 used it and chose D; C2's rationale explicitly reports that it cannot tie any reaction to a news date and falls back to B. No alias is involved in either condition: the mechanism is loss of the announcement anchor, not distractor confusion. One honest caveat: C1's own temporal reasoning was imperfect (it read Jan 23-25, which precedes publication, as the reaction), so the timestamp led it to the gold option without a fully valid inference.",
+      "task5_exposure": {
+        "n_type_a": 7,
+        "n_type_b": 3,
+        "type_a_tiers": {
+          "exact": 0,
+          "family": 7,
+          "manual_rescue": 0
+        },
+        "type_a_direction": {
+          "historical": 7,
+          "future": 0
+        },
+        "type_a_abs_offset_days": {
+          "min": 107.66,
+          "median": 461.79,
+          "max": 616.02
+        },
+        "type_b_relation_tiers": {
+          "anchor_company_named": 1,
+          "same_ticker": 2
+        }
+      },
+      "task6_masking_side_effect": {
+        "n_textual_changes": 84,
+        "n_flagged": 0,
+        "verdict": "NO_NON_TEMPORAL_MASKING_SIDE_EFFECT_FOUND"
+      },
+      "invariants_verified": {
+        "question_and_options_identical": true,
+        "ticker_identical": true,
+        "gold_answer_identical": true,
+        "ts_numeric_values_identical": true,
+        "ts_n_points_identical": true,
+        "article_identities_and_order_identical": true,
+        "n_articles_identical": true,
+        "c2_reproduces_c1_under_the_masker": true,
+        "c1_shows_publication_timestamps": true,
+        "c2_shows_no_publication_timestamps": true,
+        "c1_ts_shows_absolute_timestamps": true,
+        "c2_ts_shows_ordinal_positions_only": true
+      }
+    },
+    {
+      "instance_id": 265,
+      "ticker": "BLDR",
+      "transition": "C1_WRONG_C2_CORRECT",
+      "gold_answer": "D",
+      "c1_answer": "A",
+      "c1_confidence": 0.62,
+      "c2_answer": "D",
+      "c2_confidence": 0.62,
+      "task3_temporal_use": {
+        "C1": {
+          "temporal_use": "EXPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale aligns article and series by date - 'peaking near $73.83 on 2022-08-01 and then falling to about $68.50-68.60 by 2022-08-04 13:40 ... coinciding with the timing of Article 8 published 2022-08-04'",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only; the seven aliases in the pool were not used",
+          "reliance": "TEMPORAL_GATING_VISIBLE"
+        },
+        "C2": {
+          "temporal_use": "IMPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale reasons over ordinal positions ('positions ~119-130' to 'positions 154-155') and attributes the move to 'the Q4 earnings beat and raised estimates discussed in Article 7/10'",
+          "evidence_class": "MULTIPLE",
+          "evidence_admissible": false,
+          "admissibility_note": "of the three cited articles, Article 7 is a historical alias at -125.9 days (2022-03-31) and Article 10 a future alias at +279.1 days (2023-05-10); only Article 8 (GT) is admissible, and the causal claim rests on the two aliases",
+          "reliance": "SEMANTIC_MATCH_DOMINANT"
+        }
+      },
+      "task4_flip_explanation": "C2_SEMANTIC_SHORTCUT_RECOVERED",
+      "task4_secondary_mechanism": "C1_TEMPORAL_HEURISTIC_MISLED",
+      "interpretation_confidence": "HIGH",
+      "narrative": "C2 answered D, the gold, and explained the rise by an earnings beat described in two articles dated four months before and nine months after the window. C1, with the dates visible, cited only the ground-truth article, anchored on the segment immediately preceding publication, read it as a decline of over $5 and answered A. Both segments are real: the series both rises earlier and falls at the end. The timestamp told C1 which segment was 'after the announcement' and that reading did not match the gold; without it, C2 read the larger rise and matched. The primary observable mechanism is C2's recovery through inadmissible evidence; the secondary one is C1 anchoring on the pre-publication tail.",
+      "task5_exposure": {
+        "n_type_a": 7,
+        "n_type_b": 3,
+        "type_a_tiers": {
+          "exact": 7,
+          "family": 0,
+          "manual_rescue": 0
+        },
+        "type_a_direction": {
+          "historical": 3,
+          "future": 4
+        },
+        "type_a_abs_offset_days": {
+          "min": 125.92,
+          "median": 188.39,
+          "max": 299.0
+        },
+        "type_b_relation_tiers": {
+          "same_ticker": 3
+        }
+      },
+      "task6_masking_side_effect": {
+        "n_textual_changes": 82,
+        "n_flagged": 0,
+        "verdict": "NO_NON_TEMPORAL_MASKING_SIDE_EFFECT_FOUND"
+      },
+      "invariants_verified": {
+        "question_and_options_identical": true,
+        "ticker_identical": true,
+        "gold_answer_identical": true,
+        "ts_numeric_values_identical": true,
+        "ts_n_points_identical": true,
+        "article_identities_and_order_identical": true,
+        "n_articles_identical": true,
+        "c2_reproduces_c1_under_the_masker": true,
+        "c1_shows_publication_timestamps": true,
+        "c2_shows_no_publication_timestamps": true,
+        "c1_ts_shows_absolute_timestamps": true,
+        "c2_ts_shows_ordinal_positions_only": true
+      }
+    },
+    {
+      "instance_id": 274,
+      "ticker": "PHM",
+      "transition": "C1_CORRECT_C2_WRONG",
+      "gold_answer": "D",
+      "c1_answer": "D",
+      "c1_confidence": 0.72,
+      "c2_answer": "C",
+      "c2_confidence": 0.58,
+      "task3_temporal_use": {
+        "C1": {
+          "temporal_use": "IMPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale refers to the reporting cycle only in relative terms - 'despite estimates flatlining over the past month' - wording that is present unchanged in both conditions",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only",
+          "reliance": "SEMANTIC_MATCH_DOMINANT"
+        },
+        "C2": {
+          "temporal_use": "EXPLICIT_TEMPORAL_USE",
+          "observable_basis": "rationale is a period-attribution argument - '$490,000 (a current, not prior-year, figure)' vs 'a prior-year ASP of $430,000'",
+          "evidence_class": "GT",
+          "evidence_admissible": true,
+          "admissibility_note": "cited the ground-truth article only",
+          "reliance": "MIXED"
+        }
+      },
+      "task4_flip_explanation": "POSSIBLY_TIMESTAMP_RELATED",
+      "task4_secondary_mechanism": null,
+      "interpretation_confidence": "LOW",
+      "narrative": "C2's error is a period-attribution error, and this ground-truth article is the most heavily masked of any in the discordant set (26 masked spans, including 'first-quarter 2021' -> '[QUARTER] [YEAR]' and the Q1/Q2/Q3/Q4-of-2022 community-count sequence), so the article's period labels are exactly what C2 could no longer see. That makes a timestamp link plausible. It is not demonstrated, however: the two sentences C2's rationale actually quotes - 'The average selling price of homes delivered was $490,000, up 10% year over year' and 'suggesting an increase from $430,000 in the year-ago period' - are byte-identical in C1 and C2, so the information the model used was available in both. Reported as possibly related, with low confidence, rather than as a timestamp effect.",
+      "task5_exposure": {
+        "n_type_a": 7,
+        "n_type_b": 3,
+        "type_a_tiers": {
+          "exact": 7,
+          "family": 0,
+          "manual_rescue": 0
+        },
+        "type_a_direction": {
+          "historical": 3,
+          "future": 4
+        },
+        "type_a_abs_offset_days": {
+          "min": 134.9,
+          "median": 172.85,
+          "max": 247.78
+        },
+        "type_b_relation_tiers": {
+          "same_ticker": 3
+        }
+      },
+      "task6_masking_side_effect": {
+        "n_textual_changes": 75,
+        "n_flagged": 0,
+        "verdict": "NO_NON_TEMPORAL_MASKING_SIDE_EFFECT_FOUND"
+      },
+      "invariants_verified": {
+        "question_and_options_identical": true,
+        "ticker_identical": true,
+        "gold_answer_identical": true,
+        "ts_numeric_values_identical": true,
+        "ts_n_points_identical": true,
+        "article_identities_and_order_identical": true,
+        "n_articles_identical": true,
+        "c2_reproduces_c1_under_the_masker": true,
+        "c1_shows_publication_timestamps": true,
+        "c2_shows_no_publication_timestamps": true,
+        "c1_ts_shows_absolute_timestamps": true,
+        "c2_ts_shows_ordinal_positions_only": true
+      }
+    }
+  ],
+  "task4_category_counts": {
+    "C1_CORRECT_C2_WRONG": {
+      "CONSISTENT_WITH_TIMESTAMP_HELP": 1,
+      "POSSIBLY_TIMESTAMP_RELATED": 1,
+      "NO_OBSERVABLE_TIMESTAMP_EFFECT": 0,
+      "UNCLEAR": 0
+    },
+    "C1_WRONG_C2_CORRECT": {
+      "C1_TEMPORAL_HEURISTIC_MISLED": 2,
+      "C2_SEMANTIC_SHORTCUT_RECOVERED": 2,
+      "LIKELY_RUN_VARIABILITY": 0,
+      "OTHER_OBSERVABLE_MECHANISM": 0,
+      "UNCLEAR": 0
+    }
+  },
+  "task5_group_comparison": {
+    "note": "descriptive only; n = 2 vs 4, no significance testing",
+    "C1_CORRECT_C2_WRONG": {
+      "instance_ids": [
+        252,
+        274
+      ],
+      "n_type_a": [
+        7,
+        7
+      ],
+      "n_type_b": [
+        3,
+        3
+      ],
+      "tiers": [
+        {
+          "exact": 0,
+          "family": 7,
+          "manual_rescue": 0
+        },
+        {
+          "exact": 7,
+          "family": 0,
+          "manual_rescue": 0
+        }
+      ],
+      "direction": [
+        {
+          "historical": 7,
+          "future": 0
+        },
+        {
+          "historical": 3,
+          "future": 4
+        }
+      ],
+      "abs_offset_days": [
+        {
+          "min": 107.66,
+          "median": 461.79,
+          "max": 616.02
+        },
+        {
+          "min": 134.9,
+          "median": 172.85,
+          "max": 247.78
+        }
+      ],
+      "n_cases_citing_an_alias_in_c2": 0
+    },
+    "C1_WRONG_C2_CORRECT": {
+      "instance_ids": [
+        18,
+        96,
+        176,
+        265
+      ],
+      "n_type_a": [
+        7,
+        7,
+        6,
+        7
+      ],
+      "n_type_b": [
+        3,
+        3,
+        4,
+        3
+      ],
+      "tiers": [
+        {
+          "exact": 7,
+          "family": 0,
+          "manual_rescue": 0
+        },
+        {
+          "exact": 7,
+          "family": 0,
+          "manual_rescue": 0
+        },
+        {
+          "exact": 0,
+          "family": 6,
+          "manual_rescue": 0
+        },
+        {
+          "exact": 7,
+          "family": 0,
+          "manual_rescue": 0
+        }
+      ],
+      "direction": [
+        {
+          "historical": 0,
+          "future": 7
+        },
+        {
+          "historical": 1,
+          "future": 6
+        },
+        {
+          "historical": 0,
+          "future": 6
+        },
+        {
+          "historical": 3,
+          "future": 4
+        }
+      ],
+      "abs_offset_days": [
+        {
+          "min": 112.82,
+          "median": 351.23,
+          "max": 565.78
+        },
+        {
+          "min": 97.41,
+          "median": 263.95,
+          "max": 586.31
+        },
+        {
+          "min": 230.4,
+          "median": 650.09,
+          "max": 672.93
+        },
+        {
+          "min": 125.92,
+          "median": 188.39,
+          "max": 299.0
+        }
+      ],
+      "n_cases_citing_an_alias_in_c2": 2
+    },
+    "answers": {
+      "are_timestamp_hurt_cases_exposed_to_more_type_a": "no - both hurt cases carry 7A/3B, the same or slightly more than the improvement cases (7,7,6,7 A). Exposure does not separate the groups; use does.",
+      "are_c2_improvement_cases_dominated_by_type_b": "no - they are 6-7 Type A each, the same as the rest. What distinguishes them is that 2 of the 4 actually cited an alias in C2 (176, 265), while neither hurt case cited any distractor in either condition.",
+      "are_future_aliases_disproportionately_involved": "descriptively yes. The improvement group's Type-A pools are 23 future vs 4 historical, and 2 of the 3 aliases cited in C2 are future (+650.2 d in 176, +279.1 d in 265; the third is -125.9 d in 265). The one hurt case whose aliases are entirely historical (252) saw no alias cited at all. With six cases this is a description, not a finding."
+    }
+  },
+  "supplementary_citation_statistics": {
+    "note": "all 50 instances, descriptive; the discordant numbers have no meaning without this denominator",
+    "C1": {
+      "n_citing_gt": 48,
+      "n_citing_only_gt": 46,
+      "n_citing_type_a": 1,
+      "n_citing_type_b": 3,
+      "n_citing_any_distractor": 3,
+      "n_citing_nothing": 1
+    },
+    "C2": {
+      "n_citing_gt": 43,
+      "n_citing_only_gt": 34,
+      "n_citing_type_a": 8,
+      "n_citing_type_b": 6,
+      "n_citing_any_distractor": 12,
+      "n_citing_nothing": 4
+    },
+    "instances_scored_correct_while_citing_a_temporal_alias": {
+      "C1": [
+        15
+      ],
+      "C2": [
+        35,
+        51,
+        176,
+        215,
+        265,
+        317,
+        371
+      ]
+    }
+  },
+  "task6_masking_audit": {
+    "self_test": {
+      "description": "non-temporal edits injected into real article text must be flagged, otherwise a clean sweep means nothing",
+      "results": [
+        {
+          "injection": "clause deleted",
+          "flagged": true,
+          "n_flags": 1,
+          "applied_to": "'Mona Lisa' Of Sneakers Go On Sale: What You Need To Know Ab",
+          "edit": "200 characters of real prose removed"
+        },
+        {
+          "injection": "entity identity changed",
+          "flagged": true,
+          "n_flags": 1,
+          "applied_to": "'Mona Lisa' Of Sneakers Go On Sale: What You Need To Know Ab",
+          "edit": "Mona -> Adidas"
+        },
+        {
+          "injection": "negation flipped",
+          "flagged": true,
+          "n_flags": 1,
+          "applied_to": "'Mona Lisa' Of Sneakers Go On Sale: What You Need To Know Ab",
+          "edit": "dropped a 'not'"
+        },
+        {
+          "injection": "non-date number changed",
+          "flagged": true,
+          "n_flags": 1,
+          "applied_to": "'Mona Lisa' Of Sneakers Go On Sale: What You Need To Know Ab",
+          "edit": "18% -> 999.9%"
+        }
+      ],
+      "all_injections_caught": true
+    },
+    "discordant_scope": {
+      "instance_ids": [
+        18,
+        96,
+        176,
+        252,
+        265,
+        274
+      ],
+      "n_flagged": 0,
+      "flags": [],
+      "verdict": "NO_NON_TEMPORAL_MASKING_SIDE_EFFECT_FOUND"
+    },
+    "all50_scope": {
+      "n_flagged": 4,
+      "note": "every flag is raised by the deliberately trigger-happy numeric guard (a 4-digit year next to a digit or decimal point, which is how a price such as 2071.12 would look) and has to be read in context; see results/c1_c2_masking_flag_context.json",
+      "verdict": "FLAGS REQUIRE ADJUDICATION"
+    },
+    "flag_adjudication": "the four flags in the all-50 sweep are all in instance 215 (not discordant) and all are genuine calendar years in French-language articles - 'au niveau de 2019', 'decembre 2021', 'par rapport a 2020'. They were raised by the deliberately over-sensitive numeric guard, not by a real side effect; contexts are recorded in results/c1_c2_masking_flag_context.json.",
+    "verdict": "NO_NON_TEMPORAL_MASKING_SIDE_EFFECT_FOUND"
+  },
+  "design_observations": {
+    "no_post_publication_price_points": "re-derived here: 0 of 50 instances contain any time-series point after the ground-truth article's publication timestamp, and the same holds for all six discordant instances (gaps of 0.0 to 17.4 hours). Answer options that assert a move 'following the news' are therefore unverifiable from the window - a fact only a timestamp-grounded reader can notice. This is the mechanism behind both C1_TEMPORAL_HEURISTIC_MISLED cases (18, 96).",
+    "options_retain_absolute_dates_in_c2": "26 of 50 instances (including discordant 96, 252, 274) carry absolute temporal tokens inside the MCQA question or options. By protocol the MCQA text is byte-identical across C0-C3, so in C2 an option can name a date that the evidence context no longer contains. Recorded as an observed asymmetry; nothing was changed.",
+    "accuracy_and_grounding_move_in_opposite_directions": "C2 scores higher (46/50 vs 44/50) while citing temporal aliases in 8 instances against C1's 1, and citing the ground-truth article alone in 34 instances against C1's 46. Seven of the eight alias-citing C2 instances are scored correct."
+  },
+  "limitations": [
+    "single run per condition per instance; no repeat sampling, so no within-condition variability estimate exists and 'run variability' cannot be quantified - it was not needed as an explanation for any of the six cases",
+    "rationales are self-reported and may not reflect the computation that produced the answer; every judgement here is about what the model stated and cited, not about what it internally did",
+    "six discordant cases out of fifty; all group comparisons are descriptive"
+  ]
+}
