@@ -32,7 +32,8 @@ result is touched: Qwen writes only under `results/<run-tag>/`.
 | `collect_qwen_results.py` | structured JSON → scored JSONL, reusing the Sonnet parser |
 | `verify_frozen_inputs.py` | sha256 of all 205 frozen inputs + audit of what each run actually sent |
 | `smoke_test_one.py` | the 7-point one-instance validation |
-| `offline_selftest.py` | everything except the GPU call, no server needed; also proves the two run targets stay disjoint |
+| `offline_selftest.py` | everything except the GPU call, no server needed; proves the two run targets stay disjoint and that a valid result is never re-run |
+| `run_qwen35_array_1h_retry.slurm` | Slurm array (0-3 = C0/C1/C2/C3) for the length-limit retry pass |
 | `frozen_inputs_baseline.json` | the recorded hashes |
 
 Scoring reuses the repository's **unmodified** `score_c0.py`.
@@ -54,11 +55,16 @@ up at once, give the second a different `--port` and pass a matching
 
 ```bash
 vllm serve Qwen/Qwen3.5-9B \
-  --max-model-len 131072 \
+  --max-model-len 65536 \
   --reasoning-parser qwen3 \
   --language-model-only \
   --port 8001
 ```
+
+`--max-model-len 65536` is what the Qwen3.5-9B runs use, including the retry
+pass. The longest frozen prompt is 41,669 tokens, so it leaves room for the
+16,384-token ceiling of the main pass and the 22,000-token ceiling of the retry
+alike (41,669 + 22,000 = 63,669, with 1,867 to spare).
 
 Thinking stays on. `enable_thinking=False` is never sent by any script here.
 If a server build needs the kwarg spelled out, add `--send-enable-thinking-kwarg`
@@ -134,8 +140,10 @@ against the model id stored in every raw file, and any disagreement is counted
 in `n_model_mismatch` in the collect report rather than silently absorbed.
 
 Interrupted jobs resume by relaunching the same command: an instance with an
-existing result file is skipped. `--redo-malformed` re-runs only those whose
-final JSON does not parse; `--only 15 18` re-runs named instances.
+existing result file is skipped. `--redo-malformed` re-runs those whose final
+JSON does not parse; `--redo-truncated` re-runs only those that hit the
+completion ceiling without a usable answer; `--only 15 18` re-runs named
+instances. A valid result is never re-run under any of them.
 
 ## Generation settings
 
@@ -150,21 +158,82 @@ Explicit in `run_qwen_paper50.py` and recorded in every result file and in
 | `seed` | `20260823` |
 | `presence_penalty` | unset |
 
-**Read this before the full run.** The default is greedy decoding because you
-asked for a conservative deterministic configuration, and it is what makes the
-run reproducible. But Qwen's own guidance for thinking mode recommends
-`temperature 0.6`, `top_p 0.95`, and warns that greedy decoding can send
-reasoning models into repetition loops — which here would show up as
-`finish_reason == "length"` and an empty or truncated final answer. The smoke
-test and the collector both surface that (`n_truncated`, `truncated_instance_ids`).
-If you see it, switch deliberately and record it:
-
-```bash
-python qwen/run_qwen_paper50.py --conditions C0 --temperature 0.6 --top-p 0.95
-```
+Decoding is deterministic and stays that way. Qwen's own guidance for thinking
+mode suggests `temperature 0.6` / `top_p 0.95`, but this evaluation keeps greedy
+decoding so the run is reproducible; where the ceiling turns out to be the
+binding constraint, the length-limit retry below addresses it without touching
+the decoding settings.
 
 Nothing is ever truncated silently: `finish_reason`, `truncated` and the full
-`usage` block are stored per instance.
+`usage` block are stored per instance, and the collect report lists
+`n_truncated` / `truncated_instance_ids`.
+
+## Length-limit retry protocol
+
+Some Qwen3.5-9B instances reached `finish_reason="length"` with no final
+content, because the whole completion budget went on reasoning. The protocol
+for those is a larger ceiling, not different sampling:
+
+- **Initial completion ceiling: 16,384 tokens.**
+- **Deterministic decoding**: `temperature 0.0`, `top_p 1.0`, `seed 20260823`.
+- **If an instance exhausts that ceiling before producing final content, it is
+  retried with the same decoding settings and an expanded ceiling of 22,000
+  tokens.**
+- **Successful instances that stopped before the original ceiling are retained
+  unchanged** — they are not re-requested, re-scored or rewritten.
+
+This is a length-limit retry. The model's decoding strategy is identical in both
+passes; only `max_tokens` differs.
+
+Which instances the retry touches is decided by the runner's resume logic, not
+by a hand-written list:
+
+| state of `results/<run-tag>/<cond>_raw/<id>.json` | retry pass |
+| --- | --- |
+| final answer parses | **skipped, untouched** |
+| absent (the empty-content length failures write no file) | run |
+| present, no usable answer, `truncated: true` | re-run under `--redo-truncated` |
+| present, no usable answer, not truncated | re-run only under `--redo-malformed` |
+
+`should_rerun()` enforces one invariant: **a result whose final answer parses is
+never re-run, whatever flags are passed**, so a completed instance cannot be
+overwritten by a later pass.
+
+Retries write into the **same** directories — `results/qwen35_9b/c0_raw/` and so
+on. There is no second dataset. Each newly written file carries its own
+`generation` block, so a retried instance visibly reads `"max_tokens": 22000`
+while instances kept from the first pass still read `16384`. Every pass is also
+appended to `results/<run-tag>/run_metadata_history.jsonl`, because
+`run_metadata_<conds>.json` holds only the latest pass.
+
+### Running it
+
+```bash
+sbatch qwen/run_qwen35_array_1h_retry.slurm
+```
+
+Array tasks 0–3 map to C0/C1/C2/C3, one A100 and one hour each, each task
+starting its own vLLM server on its own port. The server keeps
+`--max-model-len 65536`: the longest frozen prompt is 41,669 tokens, so
+41,669 + 22,000 = 63,669 fits with 1,867 tokens to spare.
+
+The equivalent by hand, for one condition:
+
+```bash
+python qwen/run_qwen_paper50.py \
+  --conditions C0 \
+  --model Qwen/Qwen3.5-9B \
+  --run-tag qwen35_9b \
+  --temperature 0.0 \
+  --top-p 1.0 \
+  --seed 20260823 \
+  --max-tokens 22000 \
+  --redo-truncated
+```
+
+Since each array task handles a single condition, the `--balanced` rotation does
+not apply to the retry pass; every request is a fresh stateless call, so run
+order cannot influence an answer either way.
 
 ## Output
 

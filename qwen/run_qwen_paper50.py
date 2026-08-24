@@ -14,9 +14,11 @@ results/<run-tag>/<cond>_raw/<instance_id>.json, holding the thinking trace and
 the final answer as separate fields plus the full API response for later audit.
 
 Resume:  an instance whose result file already exists is skipped, so an
-interrupted job can simply be relaunched.  --redo-malformed re-runs only those
-whose saved final content does not parse into the expected schema; --only re-runs
-named ids.
+interrupted job can simply be relaunched.  --redo-malformed re-runs those whose
+saved final content does not parse; --redo-truncated re-runs only those that
+exhausted the completion ceiling without leaving a usable final answer; --only
+re-runs named ids.  A result whose final answer parses is never re-run, whatever
+flags are given, so a completed instance cannot be overwritten by a later pass.
 
 Condition order:  C0 is run on its own.  For C1/C2/C3 the work list is
 interleaved with the rotation C1,C2,C3 / C2,C3,C1 / C3,C1,C2 by instance rank,
@@ -27,7 +29,8 @@ Usage
   python qwen/run_qwen_paper50.py --conditions C0
   python qwen/run_qwen_paper50.py --conditions C1 C2 C3 --balanced
   python qwen/run_qwen_paper50.py --conditions C0 --only 15 --dry-run
-  python qwen/run_qwen_paper50.py --conditions C0       --model Qwen/Qwen3.5-9B --run-tag qwen35_9b
+  python qwen/run_qwen_paper50.py --conditions C0 --model Qwen/Qwen3.5-9B --run-tag qwen35_9b
+  python qwen/run_qwen_paper50.py --conditions C0 --run-tag qwen35_9b --redo-truncated --max-tokens 22000
 """
 
 import argparse
@@ -68,6 +71,29 @@ def final_json_ok(content):
         return "\"answer\"" in content
     fields, err = validate(extract_json(content))
     return err is None
+
+
+def should_rerun(out_path, redo_malformed, redo_truncated):
+    """Decide what to do with an existing result file -> (rerun, why).
+
+    Invariant: a result whose final answer parses is NEVER rerun, whatever
+    flags are given.  Only a file that carries no usable answer can be
+    reconsidered, so a completed instance can never be overwritten by a later
+    pass.
+    """
+    try:
+        with open(out_path, encoding="utf-8") as f:
+            rec = json.load(f)
+    except Exception:                                        # noqa: BLE001
+        return True, "existing result file is unreadable"
+    if final_json_ok(rec.get("content")):
+        return False, "valid result"
+    if redo_malformed:
+        return True, "final JSON does not parse (--redo-malformed)"
+    if redo_truncated and rec.get("truncated"):
+        return True, ("hit the completion ceiling with no usable final answer "
+                      "(--redo-truncated)")
+    return False, "no usable answer, but no redo flag covers it"
 
 
 def work_list(conditions, balanced, only):
@@ -116,7 +142,14 @@ def main():
     # ---- run control -------------------------------------------------------
     ap.add_argument("--only", type=int, nargs="*", default=None)
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--redo-malformed", action="store_true")
+    ap.add_argument("--redo-malformed", action="store_true",
+                    help="re-run instances whose saved final JSON does not "
+                         "parse, whatever the reason")
+    ap.add_argument("--redo-truncated", action="store_true",
+                    help="re-run only instances that exhausted the completion "
+                         "ceiling without leaving a usable final answer; used "
+                         "by the length-limit retry pass. A valid result is "
+                         "never re-run.")
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--dry-run", action="store_true",
                     help="build the work list and show what would be sent")
@@ -171,21 +204,18 @@ def main():
         json.dump(meta, f, indent=2, ensure_ascii=False)
     print("plan: %d calls  ->  %s" % (len(plan), mpath))
 
-    done = skipped = failed = 0
+    done = skipped = failed = reran = 0
     failures = []
     for i, cond in plan:
         out_path = result_path(args.run_tag, cond, i)
         if os.path.exists(out_path):
-            if not args.redo_malformed:
+            rerun, why = should_rerun(out_path, args.redo_malformed,
+                                      args.redo_truncated)
+            if not rerun:
                 skipped += 1
                 continue
-            try:
-                with open(out_path, encoding="utf-8") as f:
-                    if final_json_ok(json.load(f).get("content")):
-                        skipped += 1
-                        continue
-            except Exception:                                # noqa: BLE001
-                pass
+            reran += 1
+            print("redo %s/%-4d %s" % (cond, i, why))
 
         prompt_path = os.path.join(CLI_DIR % cond.lower(), "%d.txt" % i)
         prompt_text = read_prompt(prompt_path)

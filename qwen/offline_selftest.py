@@ -91,6 +91,48 @@ def main():
             rejected = True
         check("run tag %r is rejected" % bad_tag, rejected)
 
+    # ---- length-limit retry: what gets re-run, and what never does ---------
+    from run_qwen_paper50 import should_rerun  # noqa: E402
+
+    def saved(tmpdir, name, content, truncated):
+        p = os.path.join(tmpdir, name)
+        with open(p, "w", encoding="utf-8", newline="\n") as f:
+            json.dump({"content": content, "truncated": truncated,
+                       "finish_reason": "length" if truncated else "stop"}, f)
+        return p
+
+    d = tempfile.mkdtemp(prefix="qwen_retry_")
+    try:
+        good = saved(d, "good.json", FINAL, False)
+        good_trunc = saved(d, "good_trunc.json", FINAL, True)
+        partial = saved(d, "partial.json", '{"answer": "C", "confid', True)
+        prose = saved(d, "prose.json", "I think it is C.", False)
+        # a valid answer is untouchable, whatever flags are passed
+        for flags in ((False, False), (True, False), (False, True), (True, True)):
+            check("valid result is never re-run (redo_malformed=%s, "
+                  "redo_truncated=%s)" % flags,
+                  should_rerun(good, *flags)[0] is False)
+        check("valid answer that happened to hit the ceiling is kept",
+              should_rerun(good_trunc, True, True)[0] is False)
+        # a length failure that left no usable answer is exactly what is re-run
+        check("truncated with unusable answer is re-run under --redo-truncated",
+              should_rerun(partial, False, True)[0] is True)
+        check("truncated with unusable answer is left alone without the flag",
+              should_rerun(partial, False, False)[0] is False)
+        check("non-truncated malformed is NOT re-run by --redo-truncated",
+              should_rerun(prose, False, True)[0] is False)
+        check("non-truncated malformed IS re-run by --redo-malformed",
+              should_rerun(prose, True, False)[0] is True)
+        check("a missing file has nothing to skip (it is simply run)",
+              not os.path.exists(os.path.join(d, "absent.json")))
+        corrupt = os.path.join(d, "corrupt.json")
+        with open(corrupt, "w", encoding="utf-8") as f:
+            f.write("not json at all")
+        check("an unreadable result file is re-run rather than trusted",
+              should_rerun(corrupt, False, False)[0] is True)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
     # ---- answer schema -----------------------------------------------------
     fields, err = validate(extract_json(FINAL))
     check("final content parses with the Sonnet validator", err is None, str(err))
