@@ -19,6 +19,7 @@ report is a function of the two, and either can be checked independently.
 Usage:  python analyze_grounding_all50.py
 """
 
+import argparse
 import datetime as dt
 import json
 import re
@@ -345,9 +346,9 @@ SHORT = {"GROUNDED": "GROUNDED", "MIXED_GROUNDING": "MIXED",
          "NO_CLEAR_GROUNDING": "UNCLEAR"}
 
 
-def build_part_a(data, roles, models):
+def build_part_a(data, roles, models, ids):
     rows = []
-    for i in sorted(data):
+    for i in ids:
         row = {"instance_id": i, "ticker": data[i]["ticker"],
                "gold_answer": data[i]["mcqa_answer"]}
         for cond in ("C1", "C2"):
@@ -404,9 +405,9 @@ def build_part_a(data, roles, models):
     return rows
 
 
-def build_part_b(data, models):
+def build_part_b(data, models, ids):
     rows = []
-    for i in sorted(data):
+    for i in ids:
         rec = data[i]
         g = parse_utc(rec["gt_published_utc"])
         ts = rec["ts_timestamps"]
@@ -463,33 +464,119 @@ def build_part_b(data, models):
     return rows
 
 
-def main():
+# ATTRIBUTED / REJECTED above were hand-read from the Sonnet-5 rationales: they
+# record what *those* rationales lean on.  Part A is a comparison against them,
+# so it is only meaningful for the Sonnet-5 outputs.  Part B needs none of it -
+# it combines the frozen benchmark, the OPTIONS table (a property of the MCQA
+# options, not of any model) and the per-instance `correct` flag - so Part B
+# transfers to another model and Part A does not.
+ANNOTATED_C1 = "results/paper50_c1_sonnet5.jsonl"
+ANNOTATED_C2 = "results/paper50_c2_sonnet5.jsonl"
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description="Grounding audit (Part A) and post-publication semantics "
+                    "audit (Part B) over the frozen Paper50 benchmark.")
+    ap.add_argument("--c1", default=ANNOTATED_C1,
+                    help="scored C1 JSONL (default: the frozen Sonnet-5 run)")
+    ap.add_argument("--c2", default=ANNOTATED_C2,
+                    help="scored C2 JSONL (default: the frozen Sonnet-5 run)")
+    ap.add_argument("--out-prefix", default="results/paper50",
+                    help="prefix for every file written")
+    ap.add_argument("--label", default="Sonnet-5",
+                    help="model name used in the report headings")
+    ap.add_argument("--parts", choices=("ab", "b"), default="ab",
+                    help="ab = both audits, valid only for the Sonnet-5 outputs "
+                         "the Part A annotations were read from; b = the "
+                         "post-publication semantics audit alone, which needs no "
+                         "annotation and transfers to any model")
+    ap.add_argument("--allow-missing", action="store_true",
+                    help="analyse the instances that have a result under both C1 "
+                         "and C2 instead of requiring all 50")
+    args = ap.parse_args(argv)
+
+    if args.parts == "ab" and (args.c1 != ANNOTATED_C1 or args.c2 != ANNOTATED_C2):
+        raise SystemExit(
+            "Part A cannot run on these outputs.\n"
+            "ATTRIBUTED/REJECTED are hand-read from the Sonnet-5 rationales - "
+            "they record which articles those rationales lean on. Scoring a "
+            "different model against them would compare its declared evidence "
+            "with Sonnet-5's reasoning and would silently produce meaningless "
+            "numbers.\n"
+            "Use --parts b for the post-publication semantics audit, which "
+            "needs no annotation.")
+
     data = {r["instance_id"]: r for r in
             json.load(open("final50_paper_data.json", encoding="utf-8"))}
     roles = role_table()
-    models = {"C1": jsonl("results/paper50_c1_sonnet5.jsonl"),
-              "C2": jsonl("results/paper50_c2_sonnet5.jsonl")}
+    models = {"C1": jsonl(args.c1), "C2": jsonl(args.c2)}
     assert set(ATTRIBUTED["C1"]) == set(data) == set(ATTRIBUTED["C2"]) == set(OPTIONS)
 
-    rows_a = build_part_a(data, roles, models)
-    rows_b = build_part_b(data, models)
+    covered = set(models["C1"]) & set(models["C2"])
+    missing = sorted(set(data) - covered)
+    if missing and not args.allow_missing:
+        raise SystemExit(
+            "%d of %d instances lack a result under C1, C2 or both: %s\n"
+            "Re-run with --allow-missing to analyse the %d that have one. That "
+            "missing set is not random - these are the instances the model "
+            "failed to answer - so every rate computed on the remainder is "
+            "biased upward."
+            % (len(missing), len(data), ", ".join(str(i) for i in missing),
+               len(data) - len(missing)))
 
-    with open("results/paper50_c1_c2_grounding_all50.jsonl", "w",
-              encoding="utf-8", newline="\n") as f:
-        for r in rows_a:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    with open("results/paper50_postpublication_audit.jsonl", "w",
+    ids = sorted(set(data) & covered)
+    prefix = args.out_prefix
+    scope = "All-50" if len(ids) == len(data) else "%d-instance" % len(ids)
+    coverage_note = ()
+    if missing:
+        coverage_note = (
+            "## Coverage", "",
+            "%d of the %d benchmark instances are analysed. %d are excluded for "
+            "lack of a result under C1, C2 or both: %s."
+            % (len(ids), len(data), len(missing),
+               ", ".join(str(i) for i in missing)), "",
+            "The exclusion is **not random**: these are the instances where the "
+            "model spent its whole completion budget reasoning and emitted no "
+            "final answer. Every rate in this report is therefore computed on "
+            "the instances the model could finish, and is biased upward "
+            "relative to the full benchmark.", "")
+
+    rows_b = build_part_b(data, models, ids)
+    with open(prefix + "_postpublication_audit.jsonl", "w",
               encoding="utf-8", newline="\n") as f:
         for r in rows_b:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print("wrote %s_postpublication_audit.jsonl (%d)" % (prefix, len(rows_b)))
 
-    print("wrote results/paper50_c1_c2_grounding_all50.jsonl (%d)" % len(rows_a))
-    print("wrote results/paper50_postpublication_audit.jsonl (%d)" % len(rows_b))
+    sb = summarise_semantics(rows_b)
+    if missing:
+        sb["analysis_coverage"] = {
+            "n_analysed": len(ids), "n_benchmark": len(data),
+            "excluded_instance_ids": missing,
+            "note": "excluded for lack of a result under C1, C2 or both; the "
+                    "exclusion is not random, so rates here are biased upward"}
+
+    if args.parts == "b":
+        with open(prefix + "_postpublication_summary.json", "w",
+                  encoding="utf-8", newline="\n") as f:
+            json.dump(sb, f, indent=2, ensure_ascii=False)
+        print("wrote %s_postpublication_summary.json" % prefix)
+        write_partb_report(rows_b, sb, prefix, scope, coverage_note)
+        print("wrote %s_postpublication_report.md" % prefix)
+        return None, rows_b
+
+    rows_a = build_part_a(data, roles, models, ids)
+    with open(prefix + "_c1_c2_grounding_all50.jsonl", "w",
+              encoding="utf-8", newline="\n") as f:
+        for r in rows_a:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print("wrote %s_c1_c2_grounding_all50.jsonl (%d)" % (prefix, len(rows_a)))
 
     sa = summarise_grounding(rows_a)
-    sb = summarise_semantics(rows_b)
     syn = synthesise(rows_a, rows_b, sa, sb)
-    write_reports(rows_a, rows_b, sa, sb, syn)
+    write_reports(rows_a, rows_b, sa, sb, syn, prefix, args.label, scope,
+                  coverage_note)
     report(sa, sb, syn)
     return rows_a, rows_b
 
@@ -867,19 +954,98 @@ def synthesise(rows_a, rows_b, sa, sb):
 # ==========================================================================
 # reports
 # ==========================================================================
-def write_reports(rows_a, rows_b, sa, sb, syn):
-    with open("results/paper50_c1_c2_grounding_summary.json", "w",
+def write_partb_report(rows_b, sb, prefix, scope, coverage_note):
+    g = sb["B1_geometry"]
+    md = ["# %s post-publication semantics audit" % scope, "",
+          "Diagnostic only, and independent of model correctness: every "
+          "classification below is made from the question and option wording, "
+          "the ground-truth publication time, the supplied window and the "
+          "ground-truth article. The cross-tab with C1/C2 results comes last, "
+          "after the classification was fixed.", "",
+          "## B1 Geometry", "",
+          "- instances with at least one time-series point after the "
+          "ground-truth publication: **%d / %d**"
+          % (g["n_with_any_post_publication_ts_point"], g["n_instances"]),
+          "- instances with none: **%d / %d**"
+          % (g["n_with_no_post_publication_ts_point"], g["n_instances"]),
+          "- gap from last window point to publication: min %.2f h, median "
+          "%.2f h, max %.2f h (all negative)"
+          % (g["gap_last_ts_minus_publication_hours"]["min"],
+             g["gap_last_ts_minus_publication_hours"]["median"],
+             g["gap_last_ts_minus_publication_hours"]["max"]),
+          "", g["reading"], "",
+          "## B2 Option categories (200 options)", ""]
+    for k, v in sorted(sb["B2_option_category_counts"].items()):
+        md.append("- %s: %d" % (k, v))
+    md += ["", "### Price levels named by an option but absent from the window",
+           "", "| id | option | gold? | level |", "| --- | --- | --- | --- |"]
+    for x in sb["B2_price_levels_absent_from_window"]:
+        md.append("| %d | %s | %s | %g |" % (x["instance_id"], x["option"],
+                                             "yes" if x["is_gold"] else "", x["level"]))
+    md += ["", "Not every absent number is a price: analyst targets, P/E ratios, "
+           "percentages and years also appear. The ones that matter are flagged "
+           "per instance below.", "",
+           "## B3 Instance classification", ""]
+    for k, v in sorted(sb["B3_class_instance_ids"].items()):
+        md.append("- **%s**: %d - %s" % (k, len(v), v))
+    md += ["", "## B4 Gold-answer audit", "",
+           "Gold requires post-publication behaviour that is not supplied: "
+           "**%s**" % sb["B4_gold_requires_unavailable_post_publication"], "",
+           "Gold partially relies on it (label or framing is post-publication, "
+           "substance is reachable from the article or the window): %s"
+           % sb["B4_gold_partially_relies_on_unavailable_post_publication"], "",
+           "Instances where in-window, pre-publication movement is described as "
+           "happening after the news: %s"
+           % sb["B4_in_window_movement_labelled_post_publication"], "",
+           "### Per-instance reasoning", ""]
+    for r in rows_b:
+        md += ["**%d %s** - gold %s - `%s`, gold reliance `%s`"
+               % (r["instance_id"], r["ticker"], r["gold_answer"],
+                  r["instance_class"], r["gold_post_publication_reliance"]),
+               "", "last window point %+.2f h vs publication. %s"
+               % (r["geometry"]["last_ts_minus_publication_hours"], r["note"]), ""]
+        if r["close_call_note"]:
+            md += ["_close call: %s_" % r["close_call_note"], ""]
+    md += ["## B5 Cross-tab with C1/C2 (descriptive, no tests)", "",
+           "| class | n | C1 acc | C2 acc | C1->C2 wrong | C1->C2 fixed | both wrong |",
+           "| --- | --- | --- | --- | --- | --- | --- |"]
+    for k, v in sorted(sb["B5_cross_tab"].items()):
+        md.append("| %s | %d | %.2f | %.2f | %s | %s | %s |"
+                  % (k, v["n"], v["c1_accuracy"], v["c2_accuracy"],
+                     v["c1_correct_c2_wrong"] or "-", v["c1_wrong_c2_correct"] or "-",
+                     v["both_wrong"] or "-"))
+    md += ["", "C1 errors by class: %s" % sb["B5_errors_by_class"]["c1_error_ids_by_class"],
+           "", "C2 errors by class: %s" % sb["B5_errors_by_class"]["c2_error_ids_by_class"],
+           "", "### Supplementary cross-tabs", "",
+           "| split | n | C1 acc | C2 acc |", "| --- | --- | --- | --- |"]
+    for name, tab in sb["B5_supplementary_cross_tabs"].items():
+        for k, v in tab.items():
+            md.append("| %s = %s | %d | %.2f | %.2f |"
+                      % (name, k, v["n"], v["c1_accuracy"], v["c2_accuracy"]))
+    md += ["", "Post-hoc subgroups on %d items; no significance testing, and no "
+           "instance was modified or excluded on the basis of this audit."
+           % sb["B1_geometry"]["n_instances"], ""]
+    md += list(coverage_note)
+    with open(prefix + "_postpublication_report.md", "w", encoding="utf-8",
+              newline="\n") as f:
+        f.write("\n".join(md))
+
+
+def write_reports(rows_a, rows_b, sa, sb, syn, prefix="results/paper50",
+                  label="Sonnet-5", scope="All-50", coverage_note=()):
+    with open(prefix + "_c1_c2_grounding_summary.json", "w",
               encoding="utf-8", newline="\n") as f:
         json.dump(sa, f, indent=2, ensure_ascii=False)
-    with open("results/paper50_postpublication_summary.json", "w",
+    with open(prefix + "_postpublication_summary.json", "w",
               encoding="utf-8", newline="\n") as f:
         json.dump(sb, f, indent=2, ensure_ascii=False)
-    with open("results/paper50_grounding_semantics_synthesis.json", "w",
+    with open(prefix + "_grounding_semantics_synthesis.json", "w",
               encoding="utf-8", newline="\n") as f:
         json.dump(syn, f, indent=2, ensure_ascii=False)
 
     # ---- grounding report ------------------------------------------------
-    md = ["# All-50 C1/C2 grounding audit - Sonnet-5, final frozen benchmark", "",
+    md = ["# %s C1/C2 grounding audit - %s, final frozen benchmark"
+          % (scope, label), "",
           "Diagnostic only. No benchmark file, distractor, mask, option or model "
           "output was modified and no inference was run.", "",
           "Two readings are reported throughout, because they answer different "
@@ -976,83 +1142,11 @@ def write_reports(rows_a, rows_b, sa, sb, syn):
                      r["C2"]["answer"], "" if r["C2"]["correct"] else " (wrong)",
                      SHORT[r["C2"]["grounding_rationale_reading"]]))
     md.append("")
-    with open("results/paper50_c1_c2_grounding_report.md", "w", encoding="utf-8",
+    with open(prefix + "_c1_c2_grounding_report.md", "w", encoding="utf-8",
               newline="\n") as f:
         f.write("\n".join(md))
 
-    # ---- post-publication report ----------------------------------------
-    g = sb["B1_geometry"]
-    md = ["# All-50 post-publication semantics audit", "",
-          "Diagnostic only, and independent of model correctness: every "
-          "classification below is made from the question and option wording, "
-          "the ground-truth publication time, the supplied window and the "
-          "ground-truth article. The cross-tab with C1/C2 results comes last, "
-          "after the classification was fixed.", "",
-          "## B1 Geometry", "",
-          "- instances with at least one time-series point after the "
-          "ground-truth publication: **%d / %d**"
-          % (g["n_with_any_post_publication_ts_point"], g["n_instances"]),
-          "- instances with none: **%d / %d**"
-          % (g["n_with_no_post_publication_ts_point"], g["n_instances"]),
-          "- gap from last window point to publication: min %.2f h, median "
-          "%.2f h, max %.2f h (all negative)"
-          % (g["gap_last_ts_minus_publication_hours"]["min"],
-             g["gap_last_ts_minus_publication_hours"]["median"],
-             g["gap_last_ts_minus_publication_hours"]["max"]),
-          "", g["reading"], "",
-          "## B2 Option categories (200 options)", ""]
-    for k, v in sorted(sb["B2_option_category_counts"].items()):
-        md.append("- %s: %d" % (k, v))
-    md += ["", "### Price levels named by an option but absent from the window",
-           "", "| id | option | gold? | level |", "| --- | --- | --- | --- |"]
-    for x in sb["B2_price_levels_absent_from_window"]:
-        md.append("| %d | %s | %s | %g |" % (x["instance_id"], x["option"],
-                                             "yes" if x["is_gold"] else "", x["level"]))
-    md += ["", "Not every absent number is a price: analyst targets, P/E ratios, "
-           "percentages and years also appear. The ones that matter are flagged "
-           "per instance below.", "",
-           "## B3 Instance classification", ""]
-    for k, v in sorted(sb["B3_class_instance_ids"].items()):
-        md.append("- **%s**: %d - %s" % (k, len(v), v))
-    md += ["", "## B4 Gold-answer audit", "",
-           "Gold requires post-publication behaviour that is not supplied: "
-           "**%s**" % sb["B4_gold_requires_unavailable_post_publication"], "",
-           "Gold partially relies on it (label or framing is post-publication, "
-           "substance is reachable from the article or the window): %s"
-           % sb["B4_gold_partially_relies_on_unavailable_post_publication"], "",
-           "Instances where in-window, pre-publication movement is described as "
-           "happening after the news: %s"
-           % sb["B4_in_window_movement_labelled_post_publication"], "",
-           "### Per-instance reasoning", ""]
-    for r in rows_b:
-        md += ["**%d %s** - gold %s - `%s`, gold reliance `%s`"
-               % (r["instance_id"], r["ticker"], r["gold_answer"],
-                  r["instance_class"], r["gold_post_publication_reliance"]),
-               "", "last window point %+.2f h vs publication. %s"
-               % (r["geometry"]["last_ts_minus_publication_hours"], r["note"]), ""]
-        if r["close_call_note"]:
-            md += ["_close call: %s_" % r["close_call_note"], ""]
-    md += ["## B5 Cross-tab with C1/C2 (descriptive, no tests)", "",
-           "| class | n | C1 acc | C2 acc | C1->C2 wrong | C1->C2 fixed | both wrong |",
-           "| --- | --- | --- | --- | --- | --- | --- |"]
-    for k, v in sorted(sb["B5_cross_tab"].items()):
-        md.append("| %s | %d | %.2f | %.2f | %s | %s | %s |"
-                  % (k, v["n"], v["c1_accuracy"], v["c2_accuracy"],
-                     v["c1_correct_c2_wrong"] or "-", v["c1_wrong_c2_correct"] or "-",
-                     v["both_wrong"] or "-"))
-    md += ["", "C1 errors by class: %s" % sb["B5_errors_by_class"]["c1_error_ids_by_class"],
-           "", "C2 errors by class: %s" % sb["B5_errors_by_class"]["c2_error_ids_by_class"],
-           "", "### Supplementary cross-tabs", "",
-           "| split | n | C1 acc | C2 acc |", "| --- | --- | --- | --- |"]
-    for name, tab in sb["B5_supplementary_cross_tabs"].items():
-        for k, v in tab.items():
-            md.append("| %s = %s | %d | %.2f | %.2f |"
-                      % (name, k, v["n"], v["c1_accuracy"], v["c2_accuracy"]))
-    md += ["", "Post-hoc subgroups on 50 items; no significance testing, and no "
-           "instance was modified or excluded on the basis of this audit.", ""]
-    with open("results/paper50_postpublication_report.md", "w", encoding="utf-8",
-              newline="\n") as f:
-        f.write("\n".join(md))
+    write_partb_report(rows_b, sb, prefix, scope, coverage_note)
 
     # ---- synthesis -------------------------------------------------------
     md = ["# Synthesis - grounding, shortcuts and task semantics", "",
@@ -1097,7 +1191,7 @@ def write_reports(rows_a, rows_b, sa, sb, syn):
                      ", ".join("%s=%s" % (k.split("_")[0], v)
                                for k, v in c["labels"].items())))
     md.append("")
-    with open("results/paper50_grounding_semantics_synthesis.md", "w",
+    with open(prefix + "_grounding_semantics_synthesis.md", "w",
               encoding="utf-8", newline="\n") as f:
         f.write("\n".join(md))
 
