@@ -33,7 +33,9 @@ result is touched: Qwen writes only under `results/<run-tag>/`.
 | `verify_frozen_inputs.py` | sha256 of all 205 frozen inputs + audit of what each run actually sent |
 | `smoke_test_one.py` | the 7-point one-instance validation |
 | `offline_selftest.py` | everything except the GPU call, no server needed; proves the two run targets stay disjoint and that a valid result is never re-run |
-| `run_qwen35_array_1h_retry.slurm` | Slurm array (0-3 = C0/C1/C2/C3) for the length-limit retry pass |
+| `run_qwen35_array_retry.slurm` | Slurm array (0-3 = C0/C1/C2/C3) for the Qwen3.5-9B length-limit retry pass, one A100 per task |
+| `run_qwen36_array.slurm` | Slurm array (0-3 = C0/C1/C2/C3) for the Qwen3.6-35B-A3B run, two H100 per task |
+| `run_qwen35_array_1h_retry.slurm` | superseded by `run_qwen35_array_retry.slurm`; kept for the record, do not submit |
 | `frozen_inputs_baseline.json` | the recorded hashes |
 
 Scoring reuses the repository's **unmodified** `score_c0.py`.
@@ -209,11 +211,15 @@ appended to `results/<run-tag>/run_metadata_history.jsonl`, because
 ### Running it
 
 ```bash
-sbatch qwen/run_qwen35_array_1h_retry.slurm
+mkdir -p slurm_logs   # Slurm opens --output before the script body runs
+sbatch qwen/run_qwen35_array_retry.slurm
 ```
 
-Array tasks 0–3 map to C0/C1/C2/C3, one A100 and one hour each, each task
-starting its own vLLM server on its own port. The server keeps
+Array tasks 0–3 map to C0/C1/C2/C3, one A100 and four hours each, each task
+starting its own vLLM server on its own port. The script activates the
+`qwen_vllm312` conda environment and loads `CUDA/12.9.1` itself, and sets
+`HF_HOME` to the project-space cache; without those `vllm` is not on `PATH`
+on a compute node. The server keeps
 `--max-model-len 65536`: the longest frozen prompt is 41,669 tokens, so
 41,669 + 22,000 = 63,669 fits with 1,867 tokens to spare.
 
