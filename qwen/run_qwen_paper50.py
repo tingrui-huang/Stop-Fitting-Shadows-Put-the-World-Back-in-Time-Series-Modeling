@@ -47,7 +47,9 @@ from qwen_common import (ApiError, add_target_args, build_payload,  # noqa: E402
                          sha256_text)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CLI_DIR = os.path.join(ROOT, "out_paper50_reviewed", "%s_cli")
+DEFAULT_CLI_DIR = "out_paper50_reviewed/%s_cli"
+PAPER50_CONDITIONS = ("C0", "C1", "C2", "C3")
+CLI_DIR = os.path.join(ROOT, DEFAULT_CLI_DIR)
 SYSTEM_PROMPT = os.path.join(ROOT, "prompts", "system.txt")
 ROTATIONS = (("C1", "C2", "C3"), ("C2", "C3", "C1"), ("C3", "C1", "C2"))
 
@@ -122,7 +124,14 @@ def work_list(conditions, balanced, only):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--conditions", nargs="+", required=True,
-                    choices=("C0", "C1", "C2", "C3"))
+                    help="C0/C1/C2/C3, or any condition whose frozen "
+                         "prompts sit under --cli-dir, such as S1_QO_ONLY "
+                         "with --cli-dir sanity/cli/%%s")
+    ap.add_argument("--cli-dir", default=DEFAULT_CLI_DIR,
+                    help="where the frozen prompts live, relative to the "
+                         "repository root, with %%s standing for the "
+                         "lowercased condition (default: the reviewed "
+                         "Paper50 tree)")
     ap.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     add_target_args(ap)
     ap.add_argument("--balanced", action="store_true",
@@ -154,6 +163,21 @@ def main():
     ap.add_argument("--dry-run", action="store_true",
                     help="build the work list and show what would be sent")
     args = ap.parse_args()
+
+    global CLI_DIR
+    CLI_DIR = os.path.join(ROOT, args.cli_dir)
+    if args.cli_dir == DEFAULT_CLI_DIR:
+        bad = [c for c in args.conditions if c not in PAPER50_CONDITIONS]
+        if bad:
+            raise SystemExit(
+                "%s is not a Paper50 condition. Pass --cli-dir to point at "
+                "another frozen prompt tree, e.g. --cli-dir sanity/cli/%%s "
+                "--conditions S1_QO_ONLY" % ", ".join(bad))
+    for c in args.conditions:
+        idx = os.path.join(CLI_DIR % c.lower(), "index.jsonl")
+        if not os.path.exists(idx):
+            raise SystemExit("no frozen prompt index at %s - check "
+                             "--conditions and --cli-dir" % idx)
 
     gen = {"temperature": args.temperature, "top_p": args.top_p,
            "max_tokens": args.max_tokens, "seed": args.seed,

@@ -35,10 +35,43 @@ result is touched: Qwen writes only under `results/<run-tag>/`.
 | `offline_selftest.py` | everything except the GPU call, no server needed; proves the two run targets stay disjoint and that a valid result is never re-run |
 | `run_qwen35_array_retry.slurm` | Slurm array (0-3 = C0/C1/C2/C3) for the Qwen3.5-9B length-limit retry pass, one A100 per task |
 | `run_qwen36_array.slurm` | Slurm array (0-3 = C0/C1/C2/C3) for the Qwen3.6-35B-A3B run, two H100 per task |
+| `run_qwen35_sanity_s1.slurm` | S1_QO_ONLY (question and options only) for Qwen3.5-9B, one A100 |
 | `run_qwen35_array_1h_retry.slurm` | superseded by `run_qwen35_array_retry.slurm`; kept for the record, do not submit |
 | `frozen_inputs_baseline.json` | the recorded hashes |
 
 Scoring reuses the repository's **unmodified** `score_c0.py`.
+
+### Running a condition outside C0-C3
+
+`run_qwen_paper50.py` reads its frozen prompts from
+`out_paper50_reviewed/<cond>_cli/` and accepts only C0-C3. `--cli-dir` points
+it at another frozen tree exported under the same contract - one `<id>.txt` per
+instance plus an `index.jsonl` carrying instance_id, prompt_file, gold_answer
+and ticker - and the condition name then opens up:
+
+```bash
+python sanity/build_sanity_conditions.py
+python sanity/export_sanity_cli.py --input sanity/s1_qo_only.jsonl \
+  --condition S1_QO_ONLY --out-dir sanity/cli/s1_qo_only
+python qwen/run_qwen_paper50.py --conditions S1_QO_ONLY \
+  --cli-dir "sanity/cli/%s" --run-tag qwen35_9b --base-url ...
+```
+
+Results land in `results/<run-tag>/<cond>_raw/`, so a sanity condition never
+collides with C0-C3 or with the Sonnet-5 sanity run under `results/sanity/`.
+A condition outside C0-C3 with the default `--cli-dir` is refused, and so is a
+`--cli-dir` with no `index.jsonl` behind it.
+
+`sanity/build_sanity_conditions.py` rewrites `sanity_conditions_manifest.json`,
+which is tracked: if git reports no diff after the rebuild, the prompts are the
+same bytes the Sonnet-5 sanity run saw. `run_qwen35_sanity_s1.slurm` checks
+exactly that and refuses to start otherwise.
+
+One caveat on comparability. The Sonnet-5 sanity runs went through the Claude
+CLI, which does not expose decoding parameters; their metadata records
+`"temperature": "not explicitly controlled"`. A Qwen sanity run is temperature
+0.0 with a fixed seed, so it is comparable with the Qwen C0-C3 runs but is not
+decoding-matched to the Sonnet-5 sanity numbers.
 
 ## Serving (on an allocated GPU node, never the login node)
 
