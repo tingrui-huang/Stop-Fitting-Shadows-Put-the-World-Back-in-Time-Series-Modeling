@@ -8,6 +8,7 @@ answer accepted here is accepted by exactly the same rules that produced the
 Sonnet records.
 
 Reads   out_paper50_reviewed/<cond>_cli/index.jsonl      (instances + gold answers)
+        or whatever --cli-dir points at, for a condition outside C0-C3
         results/<run-tag>/<cond>_raw/<id>.json           (one per completed call)
 Writes  results/<run-tag>/<cond>_<run-tag>.jsonl         (parsed + scored records)
         results/<run-tag>/<cond>_collect_report.json     (missing / malformed)
@@ -40,10 +41,13 @@ from collect_c0_results import extract_json, validate  # noqa: E402
 from qwen_common import (add_target_args, model_label as label_of,  # noqa: E402
                          out_root, raw_dir)
 
+DEFAULT_CLI_DIR = "out_paper50_reviewed/%s_cli"
+PAPER50_CONDITIONS = ("C0", "C1", "C2", "C3")
+CLI_DIR = os.path.join(ROOT, DEFAULT_CLI_DIR)
+
 
 def collect(cond, run_tag, model_label, expect_model):
-    index_path = os.path.join(ROOT, "out_paper50_reviewed",
-                              "%s_cli" % cond.lower(), "index.jsonl")
+    index_path = os.path.join(CLI_DIR % cond.lower(), "index.jsonl")
     with open(index_path, encoding="utf-8") as f:
         index = [json.loads(l) for l in f if l.strip()]
     rawd = raw_dir(run_tag, cond)
@@ -147,12 +151,34 @@ def collect(cond, run_tag, model_label, expect_model):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--condition", nargs="+", required=True,
-                    choices=("C0", "C1", "C2", "C3"))
+                    help="C0/C1/C2/C3, or any condition whose frozen "
+                         "prompts sit under --cli-dir, such as S1_QO_ONLY "
+                         "with --cli-dir sanity/cli/%%s")
+    ap.add_argument("--cli-dir", default=DEFAULT_CLI_DIR,
+                    help="where the frozen prompts live, relative to the "
+                         "repository root, with %%s standing for the "
+                         "lowercased condition (default: the reviewed "
+                         "Paper50 tree)")
     add_target_args(ap, reads_only=True)
     ap.add_argument("--model-label", default=None,
                     help="scoring label; derived from the model id recorded in "
                          "the raw files when omitted")
     args = ap.parse_args()
+
+    global CLI_DIR
+    CLI_DIR = os.path.join(ROOT, args.cli_dir)
+    if args.cli_dir == DEFAULT_CLI_DIR:
+        bad = [c for c in args.condition if c not in PAPER50_CONDITIONS]
+        if bad:
+            raise SystemExit(
+                "%s is not a Paper50 condition. Pass --cli-dir to point at "
+                "another frozen prompt tree, e.g. --cli-dir sanity/cli/%%s "
+                "--condition S1_QO_ONLY" % ", ".join(bad))
+    for c in args.condition:
+        idx = os.path.join(CLI_DIR % c.lower(), "index.jsonl")
+        if not os.path.exists(idx):
+            raise SystemExit("no frozen prompt index at %s - check "
+                             "--condition and --cli-dir" % idx)
     for c in args.condition:
         collect(c, args.run_tag, args.model_label, args.model)
 
