@@ -152,6 +152,13 @@ def main():
                     help="completion budget covering thinking + final answer")
     ap.add_argument("--seed", type=int, default=20260823)
     ap.add_argument("--presence-penalty", type=float, default=None)
+    ap.add_argument("--stream", action="store_true",
+                    help="request the completion as a stream and reassemble "
+                         "it. Needed when the model sits behind a proxying "
+                         "gateway that answers 502 if nothing crosses the "
+                         "connection during a long thinking phase. It does "
+                         "not change what the model computes, and the stored "
+                         "result has the same shape either way.")
     ap.add_argument("--send-enable-thinking-kwarg", action="store_true",
                     help="additionally send chat_template_kwargs="
                          "{'enable_thinking': true}; only needed if the served "
@@ -193,6 +200,7 @@ def main():
     gen = {"temperature": args.temperature, "top_p": args.top_p,
            "max_tokens": args.max_tokens, "seed": args.seed,
            "presence_penalty": args.presence_penalty,
+           "stream": args.stream,
            "send_enable_thinking_kwarg": args.send_enable_thinking_kwarg}
 
     system_text = read_prompt(SYSTEM_PROMPT)
@@ -292,6 +300,13 @@ def main():
                              "finish_reason": rec["finish_reason"],
                              "truncated": rec["truncated"],
                              "reasoning": rec["reasoning"],
+                             # An instance that produced no usable answer still
+                             # generated tokens, and against a metered endpoint
+                             # it is the most expensive kind of instance there
+                             # is: it runs the ceiling out by definition. Keep
+                             # the usage here or any accounting that reads only
+                             # the result files will understate the true spend.
+                             "usage": rec["usage"],
                              "utc": utcnow()})
             print("FAIL %s/%d  empty final content (finish_reason=%s)"
                   % (cond, i, rec["finish_reason"]))

@@ -109,8 +109,7 @@ class ApiError(RuntimeError):
     pass
 
 
-def chat_completion(base_url, payload, timeout=1800):
-    """POST /chat/completions and return the parsed response dict."""
+def _request(base_url, payload, timeout):
     url = base_url.rstrip("/") + "/chat/completions"
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -119,6 +118,77 @@ def chat_completion(base_url, payload, timeout=1800):
                  # vLLM ignores the key but the OpenAI schema wants the header
                  "Authorization": "Bearer " + os.environ.get("VLLM_API_KEY", "EMPTY")},
         method="POST")
+    return url, req
+
+
+def _stream_completion(base_url, payload, timeout):
+    """Consume the SSE stream and rebuild the non-streaming response shape.
+
+    A gateway that proxies the model can time out and answer 502 while the
+    model is still in a long thinking phase, because nothing crosses the
+    connection until the whole completion is ready.  Streaming keeps the
+    connection fed, so this is the only way to get a long generation through
+    one.  The reassembled object is returned in the same shape the
+    non-streaming path produces, and carries reassembled_from_stream so a
+    reader of the stored result can tell how it was obtained.
+    """
+    url, req = _request(base_url, payload, timeout)
+    content, reasoning = [], []
+    usage, finish, ident, model, chunks = None, None, None, None, 0
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    ch = json.loads(data)
+                except ValueError:
+                    raise ApiError("stream chunk was not JSON: %r" % data[:300])
+                chunks += 1
+                ident = ch.get("id") or ident
+                model = ch.get("model") or model
+                if ch.get("usage"):
+                    usage = ch["usage"]
+                for c in ch.get("choices") or []:
+                    d = c.get("delta") or {}
+                    if d.get("content"):
+                        content.append(d["content"])
+                    # servers differ: vLLM emits reasoning_content, the SPIKE
+                    # gateway emits reasoning. Take whichever arrives.
+                    if d.get("reasoning"):
+                        reasoning.append(d["reasoning"])
+                    if d.get("reasoning_content"):
+                        reasoning.append(d["reasoning_content"])
+                    if c.get("finish_reason"):
+                        finish = c["finish_reason"]
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:2000]
+        raise ApiError("HTTP %s from %s: %s" % (e.code, url, detail))
+    except ApiError:
+        raise
+    except Exception as e:                                   # noqa: BLE001
+        raise ApiError("%s: %s" % (type(e).__name__, e))
+
+    message = {"role": "assistant", "content": "".join(content)}
+    if reasoning:
+        message["reasoning"] = "".join(reasoning)
+    return {"id": ident, "object": "chat.completion", "model": model,
+            "choices": [{"index": 0, "message": message,
+                         "finish_reason": finish}],
+            "usage": usage,
+            "reassembled_from_stream": True,
+            "stream_chunks": chunks}
+
+
+def chat_completion(base_url, payload, timeout=1800):
+    """POST /chat/completions and return the parsed response dict."""
+    if payload.get("stream"):
+        return _stream_completion(base_url, payload, timeout)
+    url, req = _request(base_url, payload, timeout)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
@@ -173,8 +243,13 @@ def build_payload(model, system_prompt, user_prompt, gen):
         "temperature": gen["temperature"],
         "top_p": gen["top_p"],
         "max_tokens": gen["max_tokens"],
-        "stream": False,
+        # Streaming changes nothing about what the model computes; it only
+        # keeps the connection fed so a proxying gateway does not time out
+        # mid-generation. The reassembled response has the same shape.
+        "stream": bool(gen.get("stream")),
     }
+    if payload["stream"]:
+        payload["stream_options"] = {"include_usage": True}
     if gen.get("seed") is not None:
         payload["seed"] = gen["seed"]
     if gen.get("presence_penalty") is not None:

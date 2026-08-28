@@ -1,0 +1,26 @@
+# Frozen experimental inputs must reach every model byte for byte.
+#
+# Without this, a checkout on Windows with core.autocrlf=true rewrites every
+# LF to CRLF, and the prompts stop matching the sha256 recorded in their
+# manifest at build time. That is not cosmetic: it silently breaks the one
+# guarantee the whole design rests on, that the prompt bytes are identical
+# across conditions and across models. Marking these trees -text tells git
+# never to translate them, on any platform.
+tsrbench50/cli/**       -text
+tsrbench160/cli/**      -text
+out_paper50_reviewed/** -text
+sanity/cli/**           -text
+prompts/**              -text
+
+# The frozen source data and the manifests that pin the prompt hashes.
+tsrbench50/*.jsonl      -text
+tsrbench50/*.json       -text
+tsrbench160/*.jsonl     -text
+tsrbench160/*.json      -text
+
+# Results are the record of what happened and are hashed and compared too.
+results/**              -text
+
+# Everything else: store LF in the repository, and check it out as LF, so a
+# script written on one machine runs unchanged on the other.
+*                       text=auto eol=lf
