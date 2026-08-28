@@ -94,7 +94,7 @@ def main():
     assert len({r["_pool_index"] for r in picked}) == args.n, "duplicate draw"
 
     os.makedirs(args.out, exist_ok=True)
-    data_path = os.path.join(args.out, "tsrbench50.jsonl")
+    data_path = os.path.join(args.out, "tsrbench%d.jsonl" % args.n)
     with open(data_path, "w", encoding="utf-8", newline="\n") as f:
         for k, r in enumerate(picked):
             out = {kk: vv for kk, vv in r.items() if not kk.startswith("_")}
@@ -109,6 +109,7 @@ def main():
         "source_task": "Temporal Relationship Reasoning",
         "source_pool_size": len(rows),
         "n_drawn": args.n,
+        "is_census": args.n == len(rows),
         "why_this_task": "the only TSRBench task whose series carry real-world "
                          "timestamps; the other eleven files have no time field "
                          "or hold elapsed seconds rather than dates",
@@ -127,11 +128,13 @@ def main():
         "source_indices": [r["_pool_index"] for r in picked],
         "question_sha1": {str(k + 1): r["_fp"] for k, r in enumerate(picked)},
     }
-    man_path = os.path.join(args.out, "tsrbench50_manifest.json")
+    man_path = os.path.join(args.out, "tsrbench%d_manifest.json" % args.n)
     with open(man_path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
-    print("pool %d -> drew %d" % (len(rows), len(picked)))
+    print("pool %d -> drew %d%s" % (len(rows), len(picked),
+          "  (the whole pool: this is a census, not a sample)"
+          if len(picked) == len(rows) else ""))
     print("  domain  ", manifest["drawn_domain_counts"])
     print("  events  ", manifest["drawn_n_events_counts"])
     print("  answer  ", manifest["drawn_answer_counts"],
