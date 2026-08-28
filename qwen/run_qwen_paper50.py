@@ -6,8 +6,9 @@ original run exactly (Qwen/Qwen3.6-35B-A3B -> results/qwen36/).
 
 The prompts under out_paper50_reviewed/<cond>_cli/ are frozen experimental
 inputs.  This script only ever reads them, byte for byte, and sends exactly that
-text as the user message.  prompts/system.txt is sent unchanged as the system
-message.  Nothing under results/paper50_* (the Sonnet runs) is touched.
+text as the user message.  The system prompt is sent unchanged as the
+system message; it is prompts/system.txt unless --system-prompt names
+another file.  Nothing under results/paper50_* (the Sonnet runs) is touched.
 
 One structured JSON per instance is written to
 results/<run-tag>/<cond>_raw/<instance_id>.json, holding the thinking trace and
@@ -50,7 +51,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CLI_DIR = "out_paper50_reviewed/%s_cli"
 PAPER50_CONDITIONS = ("C0", "C1", "C2", "C3")
 CLI_DIR = os.path.join(ROOT, DEFAULT_CLI_DIR)
-SYSTEM_PROMPT = os.path.join(ROOT, "prompts", "system.txt")
+DEFAULT_SYSTEM_PROMPT = os.path.join("prompts", "system.txt")
+SYSTEM_PROMPT = os.path.join(ROOT, DEFAULT_SYSTEM_PROMPT)
 ROTATIONS = (("C1", "C2", "C3"), ("C2", "C3", "C1"), ("C3", "C1", "C2"))
 
 
@@ -132,6 +134,12 @@ def main():
                          "repository root, with %%s standing for the "
                          "lowercased condition (default: the reviewed "
                          "Paper50 tree)")
+    ap.add_argument("--system-prompt", default=DEFAULT_SYSTEM_PROMPT,
+                    help="system message file, relative to the "
+                         "repository root (default: prompts/system.txt, "
+                         "the one every Paper50 run used). Its sha256 is "
+                         "recorded in every result, so runs made under "
+                         "different system prompts can always be told apart.")
     ap.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     add_target_args(ap)
     ap.add_argument("--balanced", action="store_true",
@@ -164,8 +172,11 @@ def main():
                     help="build the work list and show what would be sent")
     args = ap.parse_args()
 
-    global CLI_DIR
+    global CLI_DIR, SYSTEM_PROMPT
     CLI_DIR = os.path.join(ROOT, args.cli_dir)
+    SYSTEM_PROMPT = os.path.join(ROOT, args.system_prompt)
+    if not os.path.exists(SYSTEM_PROMPT):
+        raise SystemExit("no system prompt at %s" % SYSTEM_PROMPT)
     if args.cli_dir == DEFAULT_CLI_DIR:
         bad = [c for c in args.conditions if c not in PAPER50_CONDITIONS]
         if bad:
