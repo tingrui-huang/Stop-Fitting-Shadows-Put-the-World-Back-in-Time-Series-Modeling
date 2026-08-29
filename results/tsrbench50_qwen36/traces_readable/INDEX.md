@@ -1,4 +1,4 @@
-# Readable reasoning traces - TSRBench-50
+# Readable reasoning traces - tsrbench50_qwen36
 
 One Markdown file per instance, rendered from the authoritative raw
 results under `results/tsrbench50_qwen36/<cond>_raw/`. The reasoning trace and the

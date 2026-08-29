@@ -1,4 +1,4 @@
-"""Render the TSRBench-50 raw results as readable per-instance trace files.
+"""Render a run's raw results as readable per-instance trace files.
 
 The raw files under results/<tag>/<cond>_raw/ are the record of what happened
 and stay authoritative: they hold the full API response and nothing in them is
@@ -37,13 +37,13 @@ def predicted(rec):
         return None
 
 
-def write_trace(rec, path, cond):
+def write_trace(rec, path, cond, tag):
     g, p = rec.get("gold_answer"), predicted(rec)
     verdict = "correct" if (p is not None and p == g) else "wrong"
     gen = rec.get("generation") or {}
     usage = rec.get("usage") or {}
     L = [
-        "# TSRBench-50 / %s / instance %s" % (cond.upper(), rec["instance_id"]),
+        "# %s / %s / instance %s" % (tag, cond.upper(), rec["instance_id"]),
         "",
         "| | |",
         "|---|---|",
@@ -87,9 +87,19 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--tag", required=True)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--cli-dir", default=None,
+                    help="frozen prompt tree with %s for the condition, read only to learn how many instances the study has")
     args = ap.parse_args()
 
     root = os.path.join("results", args.tag)
+    total = None
+    if args.cli_dir:
+        for cond in CONDS:
+            idx = os.path.join(args.cli_dir % cond, "index.jsonl")
+            if os.path.exists(idx):
+                total = sum(1 for l in io.open(idx, encoding="utf-8")
+                            if l.strip())
+                break
     out = args.out or os.path.join(root, "traces_readable")
     idx = {}
     for cond in CONDS:
@@ -103,12 +113,13 @@ def main():
                         key=lambda q: int(os.path.basename(q)[:-5])):
             rec = json.load(io.open(p, encoding="utf-8"))
             iid = rec["instance_id"]
-            g, pr, v, tr = write_trace(rec, os.path.join(d, "%s.md" % iid), cond)
+            g, pr, v, tr = write_trace(rec, os.path.join(d, "%s.md" % iid),
+                                       cond, args.tag)
             rowset.append((iid, g, pr, v, tr, len(rec.get("reasoning") or "")))
         idx[cond] = rowset
         print("%-9s %2d traces -> %s" % (cond, len(rowset), d))
 
-    L = ["# Readable reasoning traces - TSRBench-50",
+    L = ["# Readable reasoning traces - %s" % args.tag,
          "",
          "One Markdown file per instance, rendered from the authoritative raw",
          "results under `results/%s/<cond>_raw/`. The reasoning trace and the" % args.tag,
@@ -126,8 +137,9 @@ def main():
         ok = sum(1 for r in rows if r[3] == "correct")
         L += ["## %s" % cond.upper(),
               "",
-              "%s. %d of 50 instances answered, %d correct."
-              % (GLOSS.get(cond, "").capitalize(), len(rows), ok),
+              "%s. %d of %d instances answered, %d correct."
+              % (GLOSS.get(cond, "").capitalize(), len(rows),
+                 total or len(rows), ok),
               "",
               "| instance | gold | predicted | | reasoning chars |",
               "|---|---|---|---|---|"]
