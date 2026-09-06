@@ -152,6 +152,12 @@ def main():
                     help="completion budget covering thinking + final answer")
     ap.add_argument("--seed", type=int, default=20260823)
     ap.add_argument("--presence-penalty", type=float, default=None)
+    ap.add_argument("--extra-body", default=None,
+                    help="JSON object merged into the request body, for "
+                         "vendor fields the OpenAI schema does not cover "
+                         "(Z.AI: '{\"thinking\": {\"type\": \"enabled\", "
+                         "\"clear_thinking\": false}}'). It is recorded in "
+                         "the run metadata and in every result.")
     ap.add_argument("--stream", action="store_true",
                     help="request the completion as a stream and reassemble "
                          "it. Needed when the model sits behind a proxying "
@@ -201,6 +207,7 @@ def main():
            "max_tokens": args.max_tokens, "seed": args.seed,
            "presence_penalty": args.presence_penalty,
            "stream": args.stream,
+           "extra_body": json.loads(args.extra_body) if args.extra_body else None,
            "send_enable_thinking_kwarg": args.send_enable_thinking_kwarg}
 
     system_text = read_prompt(SYSTEM_PROMPT)

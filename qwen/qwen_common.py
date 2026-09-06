@@ -134,6 +134,10 @@ def _stream_completion(base_url, payload, timeout):
     """
     url, req = _request(base_url, payload, timeout)
     content, reasoning = [], []
+    # Which field the server used for the trace is part of the audit trail:
+    # keep the name so the reassembled message looks like the one a
+    # non-streaming call would have returned, and reasoning_source stays true.
+    reasoning_key = None
     usage, finish, ident, model, chunks = None, None, None, None, 0
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -159,10 +163,10 @@ def _stream_completion(base_url, payload, timeout):
                         content.append(d["content"])
                     # servers differ: vLLM emits reasoning_content, the SPIKE
                     # gateway emits reasoning. Take whichever arrives.
-                    if d.get("reasoning"):
-                        reasoning.append(d["reasoning"])
-                    if d.get("reasoning_content"):
-                        reasoning.append(d["reasoning_content"])
+                    for k in ("reasoning_content", "reasoning"):
+                        if d.get(k):
+                            reasoning.append(d[k])
+                            reasoning_key = reasoning_key or k
                     if c.get("finish_reason"):
                         finish = c["finish_reason"]
     except urllib.error.HTTPError as e:
@@ -175,7 +179,7 @@ def _stream_completion(base_url, payload, timeout):
 
     message = {"role": "assistant", "content": "".join(content)}
     if reasoning:
-        message["reasoning"] = "".join(reasoning)
+        message[reasoning_key or "reasoning"] = "".join(reasoning)
     return {"id": ident, "object": "chat.completion", "model": model,
             "choices": [{"index": 0, "message": message,
                          "finish_reason": finish}],
@@ -260,6 +264,13 @@ def build_payload(model, system_prompt, user_prompt, gen):
     # will reject the whole request.
     if gen.get("send_enable_thinking_kwarg"):
         payload["chat_template_kwargs"] = {"enable_thinking": True}
+    # Vendor-specific body fields, e.g. Z.AI wants
+    # {"thinking": {"type": "enabled", "clear_thinking": false}} to return the
+    # reasoning rather than discard it. Kept as one opaque object so the runner
+    # stays vendor-neutral, and carried in gen so it lands in the run metadata
+    # and in every result record: a reader can always see what was sent.
+    for k, v in (gen.get("extra_body") or {}).items():
+        payload[k] = v
     return payload
 
 
