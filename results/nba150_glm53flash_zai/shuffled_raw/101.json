@@ -1,0 +1,78 @@
+{
+  "instance_id": 101,
+  "condition": "SHUFFLED",
+  "model": "glm-5.3-flash",
+  "reasoning": "We have a play-by-play sequence, question asked at 11:03-1st with score 2-2, win prob A 0.651, B 0.349. The last row shows 11:47-1st Player 7 (Team A) defensive rebound, then win prob 0.651/0.349 which matches the question state.\n\nWait, the times are odd (out of order). The question is asked at 11:03-1st, but last listed play is 11:47-1st. Actually the list seems unsorted. Let me sort by time descending (clock time decreasing as game progresses): 12:00-1st Player 4 (Team B) misses two point shot; 11:43-1st Player 8 (Team B) misses two point shot; 11:24-1st Player 4 (Team A) vs Player 3 (Team B) jump ball (Player 1 Team A gains possession); 11:27-1st Player 2 (Team A) misses 26-foot step back; 11:13-1st Player 3 (Team B) offensive rebound and makes two point shot; 11:05-1st Player 4 (Team B) defensive rebound; 11:03-1st Player 1 (Team A) makes driving dunk; 11:47-1st Player 7 (Team A) defensive rebound.\n\nHmm, so chronological order: 12:00 miss B; 11:47 Player 7 (A) defensive rebound; 11:43 Player 8 (B) misses two; 11:27 Player 2 (A) misses 26-footer; 11:24 jump ball; 11:13 Player 3 (B) offensive rebound + makes two; 11:05 Player 4 (B) defensive rebound; 11:03 Player 1 (A) makes driving dunk.\n\nSo at 11:03-1st, Player 1 (Team A) makes driving dunk, score 2-2. The next play after 11:03 would be after Team A scores. Win prob after the dunk is 0.633/0.367 per the table. But question says asked at 11:03 with win prob 0.651/0.349 — that's the prob listed at 11:47 row. Hmm.\n\nActually the win probabilities given: each row's win prob presumably is the state after the previous events? The row 11:47 shows 0.651/0.349, which matches \"question asked at 11:03-1st ... win probability Team A 0.651, Team B 0.349\". This is likely from a dataset (like an NBA play-by-play with win probabilities). The question: what was the most likely event to occur next?\n\nTeam A just scored a driving dunk (Player 1). After a made basket by Team A, Team B would have possession (inbound). So next event likely involves Team B. Options: A: Player 7 (Team A) makes 28-foot three; B: Player 3 (Team A) misses 13-foot pullup; C: Player 8 (Team B) makes 4-foot driving dunk (Player 11 assists); D: Player 16 (Team A) makes 13-foot jumper.\n\nGiven Team A just scored, Team B gets the ball. Option C is Team B scoring. Also Player 8 (Team B) previously missed a two-point shot, and after Team A scores, Team B possession — a driving dunk by Player 8 assisted by Player 11 is plausible.\n\nBut wait: after Team A makes a dunk, Team B inbounds. Next play at 11:47? Actually 11:47 is before 11:03. Hmm, times confusing: 11:47 > 11:43 > 11:27 > 11:24 > 11:13 > 11:05 > 11:03. So 11:47 row is earliest after 12:00. The given order in the prompt isn't chronological. The \"critical moment\" is 11:03-1st with win prob 0.651/0.349. But the row at 11:03 shows win prob 0.633/0.367 (after the dunk presumably). And the row 11:47 shows 0.651/0.349. There's inconsistency, but the question states the win prob at question time is 0.651/0.349.\n\nActually maybe win probability in each row is the probability before the play. Row 11:03: 0.633 before the dunk? Then after the dunk it'd be higher. The question says at 11:03 the win prob is 0.651 — hmm.\n\nLet's think: This appears to be from an actual NBA game, season 22-23. Score 2-2 early. Team A scores a driving dunk by Player 1 at 11:03. Next play chronologically would be something like... In actual game logs, after a made dunk, next event could be a turnover or a missed shot.\n\nGiven options, next play likely Team B possession. Option C: Player 8 (Team B) makes 4-foot driving dunk (Player 11 assists). That seems like the answer designed: after Team A's dunk, Team B responds with a driving dunk.\n\nAlternatively, maybe the actual next play: In real game data, maybe the sequence: Player 1 (Team A) makes driving dunk at 11:03, then next play Player 7 (Team A) makes 28-foot three point jumper? That can't happen immediately unless a steal.\n\nGiven team B has possession after A's score, answer C.\n\nAlso the win probability for B is 0.349 (low), so B scoring would be somewhat less likely but next possession still belongs to B.\n\nI'll answer C with moderate confidence.\n\nEvidence indices: use indices of plays. Which indexing? Play indices probably 1-8 as listed. Use the driving dunk row (index 7?) and the Player 8 miss row. Let's index rows in the order given: 1: 11:24 jump ball; 2: 11:27 Player 2 miss; 3: 11:05 Player 4 B defensive rebound; 4: 12:00 Player 4 B misses; 5: 11:13 Player 3 B offensive rebound/makes; 6: 11:03 Player 1 A driving dunk; 7: 11:43 Player 8 B misses; 8: 11:47 Player 7 A defensive rebound.\n\nEvidence: row 6 (the dunk giving Team B possession), row 7 (Player 8 B active near rim). So evidence_articles [6, 7].\n\nReturn JSON.",
+  "content": "{\n  \"answer\": \"C\",\n  \"confidence\": 0.62,\n  \"rationale\": \"Team A (Player 1) just made a driving dunk at 11:03-1st, so possession would next go to Team B, making a Team B scoring play the most likely next event. Player 8 (Team B) was already active attacking near the basket (missed a two-point shot earlier), making his 4-foot driving dunk the best fit.\",\n  \"evidence_articles\": [6, 7]\n}",
+  "finish_reason": "stop",
+  "truncated": false,
+  "reasoning_source": "reasoning_content",
+  "message_fields_returned": [
+    "content",
+    "reasoning_content",
+    "role"
+  ],
+  "gold_answer": "A",
+  "ticker": "MIL_IND",
+  "prompt_file": "nba150/cli/shuffled/101.txt",
+  "prompt_sha256": "7343cbecc3c585f6e07ba4826bebc874a6d453951ddf5db54cb38e943da0e46d",
+  "system_prompt_file": "prompts/system.txt",
+  "system_prompt_sha256": "b99b3d2a68348067a88278a53fe65200b1b6a92ab10f2c92b726817889ccaf25",
+  "generation": {
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "max_tokens": 22000,
+    "seed": 20260823,
+    "presence_penalty": null,
+    "stream": true,
+    "extra_body": {
+      "thinking": {
+        "type": "enabled",
+        "clear_thinking": false
+      }
+    },
+    "send_enable_thinking_kwarg": false
+  },
+  "usage": {
+    "prompt_tokens": 746,
+    "completion_tokens": 1572,
+    "total_tokens": 2318,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 1458
+    }
+  },
+  "started_utc": "2026-09-07T08:21:13Z",
+  "finished_utc": "2026-09-07T08:21:35Z",
+  "api_response": {
+    "id": "20260907162113b262dc2539b341ca",
+    "object": "chat.completion",
+    "model": "glm-5.3-flash",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"answer\": \"C\",\n  \"confidence\": 0.62,\n  \"rationale\": \"Team A (Player 1) just made a driving dunk at 11:03-1st, so possession would next go to Team B, making a Team B scoring play the most likely next event. Player 8 (Team B) was already active attacking near the basket (missed a two-point shot earlier), making his 4-foot driving dunk the best fit.\",\n  \"evidence_articles\": [6, 7]\n}",
+          "reasoning_content": "We have a play-by-play sequence, question asked at 11:03-1st with score 2-2, win prob A 0.651, B 0.349. The last row shows 11:47-1st Player 7 (Team A) defensive rebound, then win prob 0.651/0.349 which matches the question state.\n\nWait, the times are odd (out of order). The question is asked at 11:03-1st, but last listed play is 11:47-1st. Actually the list seems unsorted. Let me sort by time descending (clock time decreasing as game progresses): 12:00-1st Player 4 (Team B) misses two point shot; 11:43-1st Player 8 (Team B) misses two point shot; 11:24-1st Player 4 (Team A) vs Player 3 (Team B) jump ball (Player 1 Team A gains possession); 11:27-1st Player 2 (Team A) misses 26-foot step back; 11:13-1st Player 3 (Team B) offensive rebound and makes two point shot; 11:05-1st Player 4 (Team B) defensive rebound; 11:03-1st Player 1 (Team A) makes driving dunk; 11:47-1st Player 7 (Team A) defensive rebound.\n\nHmm, so chronological order: 12:00 miss B; 11:47 Player 7 (A) defensive rebound; 11:43 Player 8 (B) misses two; 11:27 Player 2 (A) misses 26-footer; 11:24 jump ball; 11:13 Player 3 (B) offensive rebound + makes two; 11:05 Player 4 (B) defensive rebound; 11:03 Player 1 (A) makes driving dunk.\n\nSo at 11:03-1st, Player 1 (Team A) makes driving dunk, score 2-2. The next play after 11:03 would be after Team A scores. Win prob after the dunk is 0.633/0.367 per the table. But question says asked at 11:03 with win prob 0.651/0.349 — that's the prob listed at 11:47 row. Hmm.\n\nActually the win probabilities given: each row's win prob presumably is the state after the previous events? The row 11:47 shows 0.651/0.349, which matches \"question asked at 11:03-1st ... win probability Team A 0.651, Team B 0.349\". This is likely from a dataset (like an NBA play-by-play with win probabilities). The question: what was the most likely event to occur next?\n\nTeam A just scored a driving dunk (Player 1). After a made basket by Team A, Team B would have possession (inbound). So next event likely involves Team B. Options: A: Player 7 (Team A) makes 28-foot three; B: Player 3 (Team A) misses 13-foot pullup; C: Player 8 (Team B) makes 4-foot driving dunk (Player 11 assists); D: Player 16 (Team A) makes 13-foot jumper.\n\nGiven Team A just scored, Team B gets the ball. Option C is Team B scoring. Also Player 8 (Team B) previously missed a two-point shot, and after Team A scores, Team B possession — a driving dunk by Player 8 assisted by Player 11 is plausible.\n\nBut wait: after Team A makes a dunk, Team B inbounds. Next play at 11:47? Actually 11:47 is before 11:03. Hmm, times confusing: 11:47 > 11:43 > 11:27 > 11:24 > 11:13 > 11:05 > 11:03. So 11:47 row is earliest after 12:00. The given order in the prompt isn't chronological. The \"critical moment\" is 11:03-1st with win prob 0.651/0.349. But the row at 11:03 shows win prob 0.633/0.367 (after the dunk presumably). And the row 11:47 shows 0.651/0.349. There's inconsistency, but the question states the win prob at question time is 0.651/0.349.\n\nActually maybe win probability in each row is the probability before the play. Row 11:03: 0.633 before the dunk? Then after the dunk it'd be higher. The question says at 11:03 the win prob is 0.651 — hmm.\n\nLet's think: This appears to be from an actual NBA game, season 22-23. Score 2-2 early. Team A scores a driving dunk by Player 1 at 11:03. Next play chronologically would be something like... In actual game logs, after a made dunk, next event could be a turnover or a missed shot.\n\nGiven options, next play likely Team B possession. Option C: Player 8 (Team B) makes 4-foot driving dunk (Player 11 assists). That seems like the answer designed: after Team A's dunk, Team B responds with a driving dunk.\n\nAlternatively, maybe the actual next play: In real game data, maybe the sequence: Player 1 (Team A) makes driving dunk at 11:03, then next play Player 7 (Team A) makes 28-foot three point jumper? That can't happen immediately unless a steal.\n\nGiven team B has possession after A's score, answer C.\n\nAlso the win probability for B is 0.349 (low), so B scoring would be somewhat less likely but next possession still belongs to B.\n\nI'll answer C with moderate confidence.\n\nEvidence indices: use indices of plays. Which indexing? Play indices probably 1-8 as listed. Use the driving dunk row (index 7?) and the Player 8 miss row. Let's index rows in the order given: 1: 11:24 jump ball; 2: 11:27 Player 2 miss; 3: 11:05 Player 4 B defensive rebound; 4: 12:00 Player 4 B misses; 5: 11:13 Player 3 B offensive rebound/makes; 6: 11:03 Player 1 A driving dunk; 7: 11:43 Player 8 B misses; 8: 11:47 Player 7 A defensive rebound.\n\nEvidence: row 6 (the dunk giving Team B possession), row 7 (Player 8 B active near rim). So evidence_articles [6, 7].\n\nReturn JSON."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 746,
+      "completion_tokens": 1572,
+      "total_tokens": 2318,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 1458
+      }
+    },
+    "reassembled_from_stream": true,
+    "stream_chunks": 1568
+  }
+}
