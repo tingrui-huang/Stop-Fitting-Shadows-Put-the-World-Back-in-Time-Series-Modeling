@@ -51,9 +51,14 @@ COMMON_TAIL = [
     ("never terminated (budget exhausted)", "@truncated", "failure"),
 ]
 
-SPILLOVER_TAIL = (r"(?:also\s+)?(?:appear|seem|look|are|is)\w*\s+"
-                  r"(?:to be\s+)?(?:jumbled|scrambl\w*|shuffl\w*|random\w*"
-                  r"|mismatch\w*|inconsist\w*|wrong|unreliab\w*|garbl\w*)")
+# The subject has to be a column the ablation never touched. An earlier draft
+# allowed "data" and "columns" as subjects and counted "the data is scrambled"
+# - which is a correct observation about the time column, not spillover - so it
+# over-reported this row by half.
+SPILLOVER_TAIL = (r"\b[^.]{0,60}?(?:also\s+)?(?:appear|seem|look|are|is|were)"
+                  r"\w*\s+(?:to be\s+)?(?:jumbled|scrambl\w*|shuffl\w*"
+                  r"|random\w*|mismatch\w*|inconsist\w*|wrong|unreliab\w*"
+                  r"|garbl\w*)")
 
 TASKS = [
     dict(tag="GDELT", root="results/tsrbench160_glm53flash_zai", n=160,
@@ -64,7 +69,7 @@ TASKS = [
               r"|(?:negative|positive|severe|conflict|cooperat|escalat)"
               r".{0,120}goldstein", "strategy"),
              ("distrusted the untouched GoldStein column too",
-              r"(?:goldstein|scores?|values?|numbers?|columns?|data)\s+"
+              r"(?:the\s+)?(?:goldstein\w*|goldstein scale)"
               + SPILLOVER_TAIL, "failure"),
          ]),
     dict(tag="NBA", root="results/nba150_glm53flash_zai", n=150,
@@ -74,10 +79,10 @@ TASKS = [
               r"|miss\w*.{0,60}rebound"
               r"|possession.{0,60}(?:so|therefore|means)", "strategy"),
              ("distrusted the untouched score / win-prob columns too",
-              r"(?:scores?|win prob\w*|numbers?|columns?|data)\s+"
+              r"(?:the\s+)?(?:scores?|win prob\w*|wp)"
               + SPILLOVER_TAIL +
-              r"|(?:scores?|numbers?) (?:attached|assigned)"
-              r".{0,40}(?:jumbled|scrambl|shuffl|random|wrong)", "failure"),
+              r"|(?:scores?|win prob\w*) (?:attached|assigned|listed)"
+              r"[^.]{0,50}(?:jumbled|scrambl|shuffl|random|wrong)", "failure"),
          ]),
 ]
 ENUM = re.compile(r"(?m)^\s*(?:Row\s*)?\d{1,3}[.:)]\s")
