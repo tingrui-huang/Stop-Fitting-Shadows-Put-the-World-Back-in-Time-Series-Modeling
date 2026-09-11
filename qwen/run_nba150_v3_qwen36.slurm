@@ -24,6 +24,10 @@
 # v3 prompts are about four times the size of the GDELT ones (median 46k chars,
 # max 59k), so the per-item wall time is longer than the 40 s measured there.
 # Six hours is a guess with margin; the job is billed on elapsed time.
+# A pilot runs with V3_LIMIT set at submit time:
+#     V3_LIMIT=50 sbatch --export=ALL,V3_LIMIT qwen/run_nba150_v3_qwen36.slurm
+# Raising it later and resubmitting adds the rest; an instance whose result
+# file already exists is never re-sent.
 #
 #SBATCH --job-name=nba_v3_q36
 #SBATCH --partition=gpu_h100
@@ -46,6 +50,9 @@ V3="nba150/discussion_v3"
 CONDS=(FULL REMOVE SHUFFLE RELATIVE)
 COND="${CONDS[${SLURM_ARRAY_TASK_ID}]}"
 LOW=$(echo "${COND}" | tr "A-Z" "a-z")
+LIMIT_ARG=""
+[ -n "${V3_LIMIT:-}" ] && LIMIT_ARG="--limit ${V3_LIMIT}"
+
 PORT=$((8850 + SLURM_ARRAY_TASK_ID))
 
 source ~/miniforge3/etc/profile.d/conda.sh
@@ -65,7 +72,10 @@ echo "task ${SLURM_ARRAY_TASK_ID}: ${COND}  node=$(hostname)  port=${PORT}"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv
 
 # Stage the runner layout from the committed prompts and verify every sha256.
-python "${V3}/stage_runner_index.py" "${LOW}" \
+# V3_LIMIT caps the item count for a pilot. The cap lives in the staged index
+# so that the collector and scorer agree on what "complete" means; the same ids
+# are taken in every condition, so the conditions stay paired.
+python "${V3}/stage_runner_index.py" ${LIMIT_ARG} "${LOW}" \
   || { echo "FATAL: prompt staging/verification failed" >&2; exit 1; }
 
 vllm serve "${MODEL}" --port "${PORT}" --tensor-parallel-size 2 \
