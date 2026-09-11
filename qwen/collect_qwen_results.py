@@ -22,6 +22,15 @@ The output records carry every field score_c0.py needs, plus `reasoning` - the
 model's thinking trace, kept distinct from `rationale`, the short explanation
 inside the final JSON answer.
 
+--schema picks which final-JSON shape counts as an answer. The default,
+legacy, is the one every Paper50/TSRBench/NBA150 run used: answer,
+confidence, rationale, evidence_articles. The discussion_v3 prompts ask for
+a different object - answer, rationale, evidence_event_ids,
+evidence_series_times, with no confidence field - so under the legacy rules
+a perfectly good v3 answer is recorded as malformed. --schema v3 accepts
+that shape and leaves confidence null; the legacy validator is untouched, so
+no earlier run can be rescored differently by this change.
+
 Usage:  python qwen/collect_qwen_results.py --condition C0
         python qwen/collect_qwen_results.py --condition C1 C2 C3
         python qwen/collect_qwen_results.py --condition C0 --model Qwen/Qwen3.5-9B --run-tag qwen35_9b
@@ -41,12 +50,52 @@ from collect_c0_results import extract_json, validate  # noqa: E402
 from qwen_common import (add_target_args, model_label as label_of,  # noqa: E402
                          out_root, raw_dir)
 
+VALID_ANSWERS = ("A", "B", "C", "D")
+
+
+def validate_v3(obj):
+    """validate() for the discussion_v3 response format.
+
+    Same contract: (record_fields, error), error None when usable. The v3
+    prompts ask for evidence as two typed lists and do not ask for a
+    confidence, so confidence is recorded as None rather than invented, and
+    the two evidence lists are concatenated into evidence_articles, the field
+    every downstream reader already knows.
+    """
+    if obj is None:
+        return None, "no JSON object with an 'answer' field found"
+
+    answer = obj.get("answer")
+    if not isinstance(answer, str) or answer.strip().upper() not in VALID_ANSWERS:
+        return None, "answer is not one of A/B/C/D: %r" % (answer,)
+
+    rationale = obj.get("rationale")
+    if not isinstance(rationale, str) or not rationale.strip():
+        return None, "rationale missing or empty"
+
+    evidence = []
+    for key in ("evidence_event_ids", "evidence_series_times"):
+        val = obj.get(key)
+        if not isinstance(val, list):
+            return None, "%s is not a list: %r" % (key, val)
+        evidence.extend(val)
+
+    return {
+        "prediction": answer.strip().upper(),
+        "confidence": None,
+        "rationale": rationale.strip(),
+        "evidence_articles": evidence,
+    }, None
+
+
+SCHEMAS = {"legacy": validate, "v3": validate_v3}
+
 DEFAULT_CLI_DIR = "out_paper50_reviewed/%s_cli"
 PAPER50_CONDITIONS = ("C0", "C1", "C2", "C3")
 CLI_DIR = os.path.join(ROOT, DEFAULT_CLI_DIR)
 
 
-def collect(cond, run_tag, model_label, expect_model):
+def collect(cond, run_tag, model_label, expect_model, schema="legacy"):
     index_path = os.path.join(CLI_DIR % cond.lower(), "index.jsonl")
     with open(index_path, encoding="utf-8") as f:
         index = [json.loads(l) for l in f if l.strip()]
@@ -73,7 +122,8 @@ def collect(cond, run_tag, model_label, expect_model):
                                    "expected_model": expect_model})
         if rec.get("truncated"):
             truncated.append(iid)
-        fields, err = validate(extract_json(rec.get("content") or ""))
+        fields, err = SCHEMAS[schema](
+            extract_json(rec.get("content") or ""))
         if err:
             # the thinking trace is kept even though the final JSON is unusable
             malformed.append({"instance_id": iid, "reason": err,
@@ -163,6 +213,9 @@ def main():
     ap.add_argument("--model-label", default=None,
                     help="scoring label; derived from the model id recorded in "
                          "the raw files when omitted")
+    ap.add_argument("--schema", choices=sorted(SCHEMAS), default="legacy",
+                    help="which final-JSON shape counts as an answer "
+                         "(default: the Paper50 one)")
     args = ap.parse_args()
 
     global CLI_DIR
@@ -180,7 +233,8 @@ def main():
             raise SystemExit("no frozen prompt index at %s - check "
                              "--condition and --cli-dir" % idx)
     for c in args.condition:
-        collect(c, args.run_tag, args.model_label, args.model)
+        collect(c, args.run_tag, args.model_label, args.model,
+                args.schema)
 
 
 if __name__ == "__main__":

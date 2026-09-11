@@ -102,7 +102,7 @@ python qwen/run_qwen_paper50.py \
   --model "${MODEL}" --run-tag "${RUN_TAG}" \
   --base-url "http://127.0.0.1:${PORT}/v1" \
   --temperature 0.0 --top-p 1.0 --seed 20260823 --max-tokens 22000
-python qwen/collect_qwen_results.py --condition "${COND}" --cli-dir "${V3}/cli/%s" \
+python qwen/collect_qwen_results.py --condition "${COND}" --cli-dir "${V3}/cli/%s" --schema v3 \
   --model "${MODEL}" --run-tag "${RUN_TAG}"
 python score_c0.py \
   --results "results/${RUN_TAG}/${LOW}_${RUN_TAG}.jsonl" \
