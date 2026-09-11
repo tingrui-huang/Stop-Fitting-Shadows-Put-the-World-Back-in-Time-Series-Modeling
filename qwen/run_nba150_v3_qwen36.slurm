@@ -25,7 +25,7 @@
 # max 59k), so the per-item wall time is longer than the 40 s measured there.
 # Six hours is a guess with margin; the job is billed on elapsed time.
 # A pilot runs with V3_LIMIT set at submit time:
-#     V3_LIMIT=50 sbatch --export=ALL,V3_LIMIT qwen/run_nba150_v3_qwen36.slurm
+#     V3_LIMIT=50 V3_REPO=$PWD sbatch --export=ALL,V3_LIMIT,V3_REPO qwen/run_nba150_v3_qwen36.slurm
 # Raising it later and resubmitting adds the rest; an instance whose result
 # file already exists is never re-sent.
 #
@@ -42,7 +42,10 @@
 
 set -uo pipefail
 
-REPO=/gpfs/work2/0/prjs2013/users/qyao1/Stop-Fitting-Shadows-Put-the-World-Back-in-Time-Series-Modeling
+# The checkout to run from. The default tree holds single-copy run outputs
+# that a branch switch would fight over, so V3_REPO points this at a git
+# worktree of the v3 branch instead and leaves that tree alone.
+REPO="${V3_REPO:-/gpfs/work2/0/prjs2013/users/qyao1/Stop-Fitting-Shadows-Put-the-World-Back-in-Time-Series-Modeling}"
 MODEL="Qwen/Qwen3.6-35B-A3B"
 RUN_TAG="nba150_v3_qwen36"
 V3="nba150/discussion_v3"
