@@ -16,7 +16,15 @@ CHOICES = ("A", "B", "C", "D")
 
 
 def mean(xs):
-    return sum(xs) / len(xs) if xs else None
+    """Mean of the values that exist.
+
+    None is not zero and not a low confidence: the discussion_v3 prompts do
+    not ask for a confidence at all, so those records carry None and are
+    left out of the average rather than dragging it down. An all-None list
+    averages to None, which is what the report should say.
+    """
+    vals = [x for x in xs if x is not None]
+    return sum(vals) / len(vals) if vals else None
 
 
 def fmt(x):
