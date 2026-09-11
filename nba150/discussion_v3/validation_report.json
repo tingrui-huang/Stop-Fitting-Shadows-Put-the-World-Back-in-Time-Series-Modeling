@@ -3,7 +3,7 @@
   "scope": "Generated and verified local files only; no model API, evaluation, retrieval or event pool",
   "source_file": "nba150/abductive_reasoning.jsonl",
   "source_sha256": "4eb3ef5269a06e14e1a7a33db0797e5b39d4366a46d052d5561f8eda2f8400f3",
-  "generator_sha256": "d31a33eec6f754b656a5c41563f163d80f05da4a5702ca6914fef0d2167cd61c",
+  "generator_sha256": "df18d4ff1aa7f8b0a814b59f11fb26fa4d1dcf8be64738f04ad3012bd36e5b04",
   "template_sha256": {
     "full": "108a1d98b7b9a146545bda0f623b94e61ee531b17a5d703f5411c9af8fb21e76",
     "text_only": "4490afca106b4f9a7f3a1f3f5fe2179c097b1512717591f6638cc1e272b7b1c5",
@@ -83,7 +83,7 @@
     "future_zero_aligns_with_target_and_after_time": true,
     "future_one_onward_aligns_with_future_times": true,
     "all_four_numerical_channels_and_number_tokens_preserved": true,
-    "required_event_text_and_order_preserved": true,
+    "required_event_text_preserved_and_nonshuffle_event_order_preserved": true,
     "event_ids_stable_across_conditions_and_collision_free": true,
     "no_shared_past_future_position_labels": true,
     "choices_order_and_index_gold_mapping_preserved": true,
@@ -94,8 +94,9 @@
     "series_only_has_no_event_context": true,
     "qa_only_has_no_game_context": true,
     "remove_has_no_structured_clock_fields_or_added_shared_sequence": true,
-    "shuffle_changes_only_table_time_labels": true,
-    "shuffle_time_multiset_preserved_and_every_label_changed": true,
+    "shuffle_reassigns_every_observed_event_time_without_using_gold": true,
+    "shuffle_preserves_event_and_time_multisets_then_sorts_events_chronologically": true,
+    "shuffle_numerical_table_target_time_and_target_marker_equal_full": true,
     "relative_event_and_series_mapping_identical": true,
     "relative_target_zero_and_exact_intervals_preserved": true,
     "time_parser_contract_covers_cross_period_fractional_ot_and_do": true,
@@ -223,13 +224,13 @@
     }
   },
   "shuffle_audit": {
-    "master_seed": "nba150-discussion-v3-shuffle-20260911",
+    "master_seed": "nba150-discussion-v3-shuffle-events-sort-v2-20260911",
     "per_item_seed_and_permutation_location": "indexes/shuffle.jsonl",
-    "permutation_semantics": "1-based source time row assigned to each output row; numerical rows and marker do not move",
+    "permutation_semantics": "Observed target-excluding events receive deranged observed-event time labels, then event/ID/assigned-time triples are sorted by cumulative elapsed game seconds",
     "impossible_items": [],
-    "rows_with_original_time_label": 0,
+    "original_events_retaining_original_time_label": 0,
     "time_multiset_mismatches": 0,
-    "items_with_nonmonotonic_shuffled_times": [
+    "items_with_changed_event_order": [
       1,
       2,
       3,
@@ -381,7 +382,9 @@
       149,
       150
     ],
-    "target_rows_participating": 150
+    "items_with_nonmonotonic_output_event_times": [],
+    "target_event_participating": false,
+    "target_time_and_numerical_row_fixed": true
   },
   "critical_summary_comparison": {
     "scalar_comparisons": 1200,
@@ -397,7 +400,7 @@
     "natural_language_phase_cues_remain": true,
     "remove_retains_order_and_past_future_partitions": true,
     "relative_span_can_reveal_game_progress": true,
-    "shuffle_can_break_monotonicity_and_creates_time_value_conflict": true,
+    "shuffle_output_times_are_monotonic_but_event_to_series_alignment_is_broken": true,
     "score_deltas_may_make_some_choices_easy_to_eliminate": true,
     "future_observations_are_abductive_evidence_not_causes_of_past_events": true
   },

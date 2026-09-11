@@ -29,7 +29,7 @@ TARGET_MARKER = "TARGET"
 MISSING_MARKER = "[A CRITICAL EVENT HAPPENED HERE]"
 EMPTY_FUTURE = "None recorded."
 EVENT_ID_NAMESPACE = "nba150-discussion-v3-event-id-v1"
-SHUFFLE_MASTER_SEED = "nba150-discussion-v3-shuffle-20260911"
+SHUFFLE_MASTER_SEED = "nba150-discussion-v3-shuffle-events-sort-v2-20260911"
 
 TIME_RE = re.compile(r"(?:(\d+):)?(\d+(?:\.\d+)?)-(1st|2nd|3rd|4th|OT|DO)")
 STRUCTURED_TIME_RE = re.compile(r"(?<!\w)(?:\d+:)?\d+(?:\.\d+)?-(?:1st|2nd|3rd|4th|OT|DO)(?!\w)")
@@ -46,11 +46,11 @@ EVENT_CONDITIONS = {"full", "text_only", "remove", "shuffle", "relative"}
 SERIES_CONDITIONS = {"full", "series_only", "remove", "shuffle", "relative"}
 EVENT_TIME_MODE = {
     "full": "game", "text_only": "game", "remove": "none",
-    "shuffle": "game", "relative": "relative",
+    "shuffle": "shuffle_sorted", "relative": "relative",
 }
 SERIES_TIME_MODE = {
     "full": "game", "series_only": "game", "remove": "none",
-    "shuffle": "shuffle", "relative": "relative",
+    "shuffle": "game", "relative": "relative",
 }
 SECTION_ORDER = {
     "full": ("Task", "Game", "Past Events", "Target Moment", "Future Events", "Time Series", "Question", "Answer Choices", "Response Format"),
@@ -64,18 +64,17 @@ SECTION_ORDER = {
 ALL_HEADINGS = set().union(*SECTION_ORDER.values())
 EVENT_HEADERS = {
     "game": "Event ID | Game time | Event",
+    "shuffle_sorted": "Event ID | Game time | Event",
     "none": "Event ID | Event",
     "relative": "Event ID | Seconds relative to target | Event",
 }
 TABLE_HEADERS = {
     "game": "| Game time | Marker | Team A score | Team B score | Team A win probability | Team B win probability |",
-    "shuffle": "| Game time | Marker | Team A score | Team B score | Team A win probability | Team B win probability |",
     "relative": "| Seconds relative to target | Marker | Team A score | Team B score | Team A win probability | Team B win probability |",
     "none": "| Marker | Team A score | Team B score | Team A win probability | Team B win probability |",
 }
 TABLE_SEPARATORS = {
     "game": "| --- | --- | --- | --- | --- | --- |",
-    "shuffle": "| --- | --- | --- | --- | --- | --- |",
     "relative": "| --- | --- | --- | --- | --- | --- |",
     "none": "| --- | --- | --- | --- | --- |",
 }
@@ -315,7 +314,7 @@ def make_event_ids(record, stable_item_id):
 
 
 def shuffle_time_labels(labels, stable_item_id):
-    """Return a seeded label derangement and source-row permutation.
+    """Assign each original row a seeded, deranged source time label.
 
     Grouping equal labels and rotating by the largest group size gives a valid
     label derangement exactly when the largest frequency is at most half of n.
@@ -346,13 +345,67 @@ def shuffle_time_labels(labels, stable_item_id):
     return shuffled, {
         "shuffle_seed_sha256": seed_digest,
         "shuffle_seed_uint64": seed,
-        "shuffle_source_row_for_output_row_1_based": [value + 1 for value in permutation],
+        "shuffle_assigned_time_source_row_for_original_event_row_1_based": [value + 1 for value in permutation],
     }
 
 
-def event_lines(record, event_ids, condition):
+def observed_event_rows(record, event_ids):
+    context = record["context"]
+    rows = []
+    for phase in ("history", "future"):
+        for index in range(len(context[f"{phase}_events"])):
+            rows.append({
+                "event_id": event_ids[phase][index],
+                "time": context[f"{phase}_times"][index],
+                "event": context[f"{phase}_events"][index],
+            })
+    return rows
+
+
+def shuffled_event_lines(record, event_ids, stable_item_id):
+    """Derange observed event times, then restore chronological display order."""
+    context = record["context"]
+    rows = observed_event_rows(record, event_ids)
+    original_times = [row["time"] for row in rows]
+    assigned_times, metadata = shuffle_time_labels(original_times, stable_item_id)
+    output_order = sorted(
+        range(len(rows)),
+        key=lambda index: (parse_game_time(assigned_times[index])["elapsed"], index),
+    )
+    output_times = [assigned_times[index] for index in output_order]
+    require(Counter(output_times) == Counter(original_times),
+            f"{stable_item_id}: sorted SHUFFLE event-time multiset changed")
+    output_elapsed = [parse_game_time(value)["elapsed"] for value in output_times]
+    require(all(output_elapsed[index - 1] <= output_elapsed[index] for index in range(1, len(output_elapsed))),
+            f"{stable_item_id}: sorted SHUFFLE event times are not chronological")
+
+    lines = [
+        f"{rows[source]['event_id']} | {assigned_times[source]} | {rows[source]['event']}"
+        for source in output_order
+    ]
+    history_count = len(context["history_events"])
+    target_elapsed = parse_game_time(record["critical_moment"]["after"]["time"])["elapsed"]
+    require(all(value <= target_elapsed for value in output_elapsed[:history_count]),
+            f"{stable_item_id}: SHUFFLE Past Events crossed the target time")
+    require(all(value >= target_elapsed for value in output_elapsed[history_count:]),
+            f"{stable_item_id}: SHUFFLE Future Events crossed the target time")
+    metadata.update({
+        "shuffle_source_event_row_for_output_row_1_based": [value + 1 for value in output_order],
+        "shuffle_target_time_fixed": True,
+        "shuffle_target_excluded_from_event_permutation": True,
+        "shuffle_sort_key": "cumulative elapsed game seconds ascending; original event row as deterministic tie-breaker",
+    })
+    return {
+        "history": "\n".join(lines[:history_count]),
+        "future": "\n".join(lines[history_count:]) if lines[history_count:] else EMPTY_FUTURE,
+    }, metadata
+
+
+def event_lines(record, event_ids, condition, stable_item_id):
     context = record["context"]
     mode = EVENT_TIME_MODE[condition]
+    if mode == "shuffle_sorted":
+        return shuffled_event_lines(record, event_ids, stable_item_id)
     target = parse_game_time(record["critical_moment"]["after"]["time"])["elapsed"]
     output = {}
     for phase in ("history", "future"):
@@ -367,7 +420,7 @@ def event_lines(record, event_ids, condition):
             else:
                 lines.append(f"{event_ids[phase][index]} | {event}")
         output[phase] = "\n".join(lines) if lines else EMPTY_FUTURE
-    return output
+    return output, {}
 
 
 def series_rows(record, condition, stable_item_id):
@@ -375,13 +428,10 @@ def series_rows(record, condition, stable_item_id):
     original_times = source_times(record)
     target_index = len(record["context"]["history_events"])
     target_elapsed = parse_game_time(record["critical_moment"]["after"]["time"])["elapsed"]
-    shuffle_metadata = {}
     if mode == "game":
         displayed_times = original_times
     elif mode == "relative":
         displayed_times = [relative_time(value, target_elapsed) for value in original_times]
-    elif mode == "shuffle":
-        displayed_times, shuffle_metadata = shuffle_time_labels(original_times, stable_item_id)
     else:
         displayed_times = [None] * len(original_times)
     values = {channel: source_values(record, channel) for channel in CHANNELS}
@@ -392,7 +442,7 @@ def series_rows(record, condition, stable_item_id):
         if mode != "none":
             fields.insert(0, displayed_times[index])
         rows.append("| " + " | ".join(fields) + " |")
-    return "\n".join(rows), shuffle_metadata
+    return "\n".join(rows), {}
 
 
 def render_prompt(record, condition, template, event_ids, stable_item_id):
@@ -406,10 +456,12 @@ def render_prompt(record, condition, template, event_ids, stable_item_id):
     }
     metadata = {}
     if condition in EVENT_CONDITIONS:
-        lines = event_lines(record, event_ids, condition)
+        lines, event_metadata = event_lines(record, event_ids, condition, stable_item_id)
+        metadata.update(event_metadata)
         substitutions.update(past_events=lines["history"], future_events=lines["future"])
     if condition in SERIES_CONDITIONS:
-        substitutions["time_series_rows"], metadata = series_rows(record, condition, stable_item_id)
+        substitutions["time_series_rows"], series_metadata = series_rows(record, condition, stable_item_id)
+        metadata.update(series_metadata)
     prompt = template.substitute(substitutions)
     require(context["history_events"] or condition in {"series_only", "qa_only"}, "Internal context error")
     return prompt, metadata
@@ -450,19 +502,6 @@ def parse_table(lines, condition):
     return rows
 
 
-def expected_event_line(record, event_ids, condition, phase, index):
-    context = record["context"]
-    mode = EVENT_TIME_MODE[condition]
-    event = context[f"{phase}_events"][index]
-    time = context[f"{phase}_times"][index]
-    if mode == "game":
-        return f"{event_ids[phase][index]} | {time} | {event}"
-    if mode == "relative":
-        target = parse_game_time(record["critical_moment"]["after"]["time"])["elapsed"]
-        return f"{event_ids[phase][index]} | {relative_time(time, target)} | {event}"
-    return f"{event_ids[phase][index]} | {event}"
-
-
 def verify_prompt(prompt, record, condition, event_ids, stable_item_id, expected_shuffle):
     sections = split_sections(prompt, condition)
     context = record["context"]
@@ -471,17 +510,20 @@ def verify_prompt(prompt, record, condition, event_ids, stable_item_id, expected
                 f"{condition}/{stable_item_id}: game metadata changed")
     if condition in EVENT_CONDITIONS:
         mode = EVENT_TIME_MODE[condition]
+        expected_events, regenerated_metadata = event_lines(record, event_ids, condition, stable_item_id)
+        if condition == "shuffle":
+            for key, value in regenerated_metadata.items():
+                require(expected_shuffle.get(key) == value,
+                        f"{condition}/{stable_item_id}: recorded shuffle metadata changed for {key}")
         for section, phase in (("Past Events", "history"), ("Future Events", "future")):
             lines = sections[section]
             require(lines and lines[0] == EVENT_HEADERS[mode], f"{condition}/{stable_item_id}: incorrect event header")
             body = lines[1:]
-            if not context[f"{phase}_events"]:
-                require(body == [EMPTY_FUTURE], f"{condition}/{stable_item_id}: empty future handling changed")
-                body = []
-            require(len(body) == len(context[f"{phase}_events"]), f"{condition}/{stable_item_id}: event count changed")
-            for index, line in enumerate(body):
-                require(line == expected_event_line(record, event_ids, condition, phase, index),
-                        f"{condition}/{stable_item_id}: event/time/ID changed at {phase}[{index}]")
+            expected_body = expected_events[phase].splitlines()
+            require(body == expected_body,
+                    f"{condition}/{stable_item_id}: event rows differ from deterministic generation in {phase}")
+            expected_count = len(context[f"{phase}_events"])
+            require(len(body) == (expected_count or 1), f"{condition}/{stable_item_id}: event count changed")
         target_time = record["critical_moment"]["after"]["time"]
         expected_target = {
             "full": [f"Game time: {target_time}", MISSING_MARKER],
@@ -507,12 +549,6 @@ def verify_prompt(prompt, record, condition, event_ids, stable_item_id, expected
             expected = [relative_time(value, target) for value in original_times]
             require([row[0] for row in rows] == expected, f"{condition}/{stable_item_id}: relative times changed")
             require(rows[target_index][0] == "0", f"{condition}/{stable_item_id}: target relative time is not zero")
-        elif mode == "shuffle":
-            displayed = [row[0] for row in rows]
-            expected = [original_times[index - 1] for index in expected_shuffle["shuffle_source_row_for_output_row_1_based"]]
-            require(displayed == expected, f"{condition}/{stable_item_id}: permutation record does not reproduce labels")
-            require(Counter(displayed) == Counter(original_times), f"{condition}/{stable_item_id}: shuffled label multiset changed")
-            require(all(displayed[index] != original_times[index] for index in range(len(rows))), f"{condition}/{stable_item_id}: unchanged shuffled label")
         value_start = 1 if mode == "none" else 2
         for offset, channel in enumerate(CHANNELS):
             require([row[value_start + offset] for row in rows] == source_values(record, channel),
@@ -567,6 +603,14 @@ def event_payload(sections, condition, section):
     return result
 
 
+def event_time_payload(sections, condition, section):
+    body = sections[section][1:]
+    if body == [EMPTY_FUTURE]:
+        return []
+    require(EVENT_TIME_MODE[condition] != "none", f"{condition}: event times are unavailable")
+    return [line.split(" | ", 2)[1] for line in body]
+
+
 def verify_cross_condition(prompts, item):
     parsed = {condition: split_sections(prompts[condition], condition) for condition in CONDITIONS}
     for condition in CONDITIONS:
@@ -575,19 +619,34 @@ def verify_cross_condition(prompts, item):
     for condition in CONDITIONS:
         if condition != "qa_only":
             require(parsed[condition]["Question"] == parsed["full"]["Question"], f"Item {item}: core question differs")
-    for condition in EVENT_CONDITIONS:
+    for condition in EVENT_CONDITIONS - {"shuffle"}:
         for section in ("Past Events", "Future Events"):
             require(event_payload(parsed[condition], condition, section) == event_payload(parsed["full"], "full", section),
                     f"Item {item}: event IDs, descriptions or order differ in {condition}")
+    full_events = sum((event_payload(parsed["full"], "full", section)
+                       for section in ("Past Events", "Future Events")), [])
+    shuffled_events = sum((event_payload(parsed["shuffle"], "shuffle", section)
+                           for section in ("Past Events", "Future Events")), [])
+    require(Counter(shuffled_events) == Counter(full_events), f"Item {item}: SHUFFLE event set changed")
+    require(shuffled_events != full_events, f"Item {item}: SHUFFLE did not change event order")
+    shuffled_times = sum((event_time_payload(parsed["shuffle"], "shuffle", section)
+                          for section in ("Past Events", "Future Events")), [])
+    full_times = sum((event_time_payload(parsed["full"], "full", section)
+                      for section in ("Past Events", "Future Events")), [])
+    require(Counter(shuffled_times) == Counter(full_times), f"Item {item}: SHUFFLE event-time multiset changed")
+    shuffled_elapsed = [parse_game_time(value)["elapsed"] for value in shuffled_times]
+    require(all(shuffled_elapsed[index - 1] <= shuffled_elapsed[index]
+                for index in range(1, len(shuffled_elapsed))),
+            f"Item {item}: SHUFFLE events are not sorted chronologically")
     full_markers, full_values = table_payload(parsed["full"], "full")
     for condition in SERIES_CONDITIONS:
         markers, values = table_payload(parsed[condition], condition)
         require(markers == full_markers and values == full_values, f"Item {item}: marker or numerical rows differ in {condition}")
-    for section in ("Game", "Past Events", "Target Moment", "Future Events", "Question", "Answer Choices", "Response Format"):
+    for section in ("Game", "Target Moment", "Time Series", "Question", "Answer Choices", "Response Format"):
         require(parsed["shuffle"][section] == parsed["full"][section], f"Item {item}: SHUFFLE changed {section}")
-    require([row[1:] for row in parse_table(parsed["shuffle"]["Time Series"], "shuffle")] ==
-            [row[1:] for row in parse_table(parsed["full"]["Time Series"], "full")],
-            f"Item {item}: SHUFFLE changed more than table time labels")
+    require(parsed["shuffle"]["Past Events"][0] == parsed["full"]["Past Events"][0] and
+            parsed["shuffle"]["Future Events"][0] == parsed["full"]["Future Events"][0],
+            f"Item {item}: SHUFFLE changed event headers")
 
 
 def index_entry(condition, item, source_line, record, raw, event_ids, metadata):
@@ -620,7 +679,7 @@ def condition_description(condition):
         "series_only": "Complete four-channel series with game clocks; no event context",
         "qa_only": "Generic question, choices and response schema only",
         "remove": "FULL evidence with explicit clock fields removed; order, partitions and marker retained",
-        "shuffle": "FULL evidence with only numerical-table time labels deranged across all rows",
+        "shuffle": "FULL numerical table with observed events reassigned to deranged clocks and sorted chronologically",
         "relative": "FULL evidence with both time surfaces mapped to exact seconds relative to target",
     }[condition]
 
@@ -688,7 +747,7 @@ def make_report(source_raw, template_raw, audit, entries, summary_diffs, shuffle
             "future_zero_aligns_with_target_and_after_time": True,
             "future_one_onward_aligns_with_future_times": True,
             "all_four_numerical_channels_and_number_tokens_preserved": True,
-            "required_event_text_and_order_preserved": True,
+            "required_event_text_preserved_and_nonshuffle_event_order_preserved": True,
             "event_ids_stable_across_conditions_and_collision_free": True,
             "no_shared_past_future_position_labels": True,
             "choices_order_and_index_gold_mapping_preserved": True,
@@ -699,8 +758,9 @@ def make_report(source_raw, template_raw, audit, entries, summary_diffs, shuffle
             "series_only_has_no_event_context": True,
             "qa_only_has_no_game_context": True,
             "remove_has_no_structured_clock_fields_or_added_shared_sequence": True,
-            "shuffle_changes_only_table_time_labels": True,
-            "shuffle_time_multiset_preserved_and_every_label_changed": True,
+            "shuffle_reassigns_every_observed_event_time_without_using_gold": True,
+            "shuffle_preserves_event_and_time_multisets_then_sorts_events_chronologically": True,
+            "shuffle_numerical_table_target_time_and_target_marker_equal_full": True,
             "relative_event_and_series_mapping_identical": True,
             "relative_target_zero_and_exact_intervals_preserved": True,
             "time_parser_contract_covers_cross_period_fractional_ot_and_do": True,
@@ -727,12 +787,14 @@ def make_report(source_raw, template_raw, audit, entries, summary_diffs, shuffle
         "shuffle_audit": {
             "master_seed": SHUFFLE_MASTER_SEED,
             "per_item_seed_and_permutation_location": "indexes/shuffle.jsonl",
-            "permutation_semantics": "1-based source time row assigned to each output row; numerical rows and marker do not move",
+            "permutation_semantics": "Observed target-excluding events receive deranged observed-event time labels, then event/ID/assigned-time triples are sorted by cumulative elapsed game seconds",
             "impossible_items": [],
-            "rows_with_original_time_label": 0,
+            "original_events_retaining_original_time_label": 0,
             "time_multiset_mismatches": 0,
-            "items_with_nonmonotonic_shuffled_times": shuffle_stats["nonmonotonic_items"],
-            "target_rows_participating": EXPECTED_ITEMS,
+            "items_with_changed_event_order": shuffle_stats["changed_event_order_items"],
+            "items_with_nonmonotonic_output_event_times": [],
+            "target_event_participating": False,
+            "target_time_and_numerical_row_fixed": True,
         },
         "critical_summary_comparison": {
             "scalar_comparisons": 8 * EXPECTED_ITEMS,
@@ -746,7 +808,7 @@ def make_report(source_raw, template_raw, audit, entries, summary_diffs, shuffle
             "natural_language_phase_cues_remain": True,
             "remove_retains_order_and_past_future_partitions": True,
             "relative_span_can_reveal_game_progress": True,
-            "shuffle_can_break_monotonicity_and_creates_time_value_conflict": True,
+            "shuffle_output_times_are_monotonic_but_event_to_series_alignment_is_broken": True,
             "score_deltas_may_make_some_choices_easy_to_eliminate": True,
             "future_observations_are_abductive_evidence_not_causes_of_past_events": True,
         },
@@ -824,7 +886,7 @@ def main():
 
     prompts = {condition: [] for condition in CONDITIONS}
     entries = {condition: [] for condition in CONDITIONS}
-    shuffle_stats = {"nonmonotonic_items": []}
+    shuffle_stats = {"changed_event_order_items": []}
     for item, ((source_line, record), event_ids) in enumerate(zip(records, event_ids_by_item), 1):
         stable_item_id = f"NBA150_{item:03d}"
         item_prompts = {}
@@ -848,11 +910,12 @@ def main():
                     f"{condition}/{stable_item_id}: changing source answer changed prompt")
 
         verify_cross_condition(item_prompts, item)
-        shuffled_times = [source_times(record)[index - 1] for index in item_metadata["shuffle"]["shuffle_source_row_for_output_row_1_based"]]
-        shuffled_elapsed = [parse_game_time(value)["elapsed"] for value in shuffled_times]
-        if any(shuffled_elapsed[index - 1] > shuffled_elapsed[index] for index in range(1, len(shuffled_elapsed))):
-            shuffle_stats["nonmonotonic_items"].append(item)
+        source_order = item_metadata["shuffle"]["shuffle_source_event_row_for_output_row_1_based"]
+        if source_order != list(range(1, len(source_order) + 1)):
+            shuffle_stats["changed_event_order_items"].append(item)
 
+    require(shuffle_stats["changed_event_order_items"] == list(range(1, EXPECTED_ITEMS + 1)),
+            "SHUFFLE must change the observed event order for every item")
     expected_indexes = {condition: jsonl_bytes(entries[condition]) for condition in CONDITIONS}
     manifest_raw = json_bytes(make_manifest(source_raw, template_raw, entries))
     report_raw = json_bytes(make_report(source_raw, template_raw, audit, entries, summary_diffs, shuffle_stats,
