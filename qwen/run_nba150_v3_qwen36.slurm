@@ -26,8 +26,9 @@
 # Six hours is a guess with margin; the job is billed on elapsed time.
 # A pilot runs with V3_LIMIT set at submit time:
 #     V3_LIMIT=50 V3_REPO=$PWD sbatch --export=ALL,V3_LIMIT,V3_REPO qwen/run_nba150_v3_qwen36.slurm
-# Raising it later and resubmitting adds the rest; an instance whose result
-# file already exists is never re-sent.
+# Extending it later names the new ids instead, so that nothing already tried
+# gets a second attempt:
+#     V3_ONLY="$(seq 51 150)" V3_REPO=$PWD sbatch --export=ALL,V3_ONLY,V3_REPO qwen/run_nba150_v3_qwen36.slurm
 #
 #SBATCH --job-name=nba_v3_q36
 #SBATCH --partition=gpu_h100
@@ -55,6 +56,16 @@ COND="${CONDS[${SLURM_ARRAY_TASK_ID}]}"
 LOW=$(echo "${COND}" | tr "A-Z" "a-z")
 LIMIT_ARG=""
 [ -n "${V3_LIMIT:-}" ] && LIMIT_ARG="--limit ${V3_LIMIT}"
+
+# V3_ONLY restricts the call to these instance ids. It exists because an
+# instance that exhausted the ceiling leaves no result file, so a plain
+# resubmission re-sends it - a second attempt for exactly the instances the
+# scoring rule counts as wrong, and only for those, which is how unequal
+# retry effort creeps back in. Extending a pilot therefore names the new ids
+# rather than relying on resume. The staged index still covers every item, so
+# the collector and scorer still count the ones left unanswered.
+ONLY_ARG=""
+[ -n "${V3_ONLY:-}" ] && ONLY_ARG="--only ${V3_ONLY}"
 
 PORT=$((8850 + SLURM_ARRAY_TASK_ID))
 
@@ -101,7 +112,7 @@ python qwen/run_qwen_paper50.py \
   --system-prompt "${V3}/system.txt" \
   --model "${MODEL}" --run-tag "${RUN_TAG}" \
   --base-url "http://127.0.0.1:${PORT}/v1" \
-  --temperature 0.0 --top-p 1.0 --seed 20260823 --max-tokens 22000
+  --temperature 0.0 --top-p 1.0 --seed 20260823 --max-tokens 22000 ${ONLY_ARG}
 python qwen/collect_qwen_results.py --condition "${COND}" --cli-dir "${V3}/cli/%s" --schema v3 \
   --model "${MODEL}" --run-tag "${RUN_TAG}"
 python score_c0.py \

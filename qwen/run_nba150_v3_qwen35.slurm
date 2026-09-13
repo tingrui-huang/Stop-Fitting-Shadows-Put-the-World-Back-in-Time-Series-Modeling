@@ -21,15 +21,18 @@
 # file and is scored wrong. An instance whose result file exists is skipped on
 # resubmission, so a timeout costs nothing.
 #
-# v3 prompts are about four times the size of the GDELT ones (median 46k chars,
-# max 59k). The 9B model is dense, so it generates slower than the A3B MoE and
-# the longest prompt plus the 22000 ceiling is about 40k tokens, inside the
-# 65536 context this model was served with before. Ten hours is a guess with
-# margin; the job is billed on elapsed time, and resubmission resumes.
+# Measured on the first 50 items: about 69 generated tokens a second, median
+# completion 5000-7500 tokens, so 4 to 6 minutes an item and roughly 2.5 hours
+# per condition. The remaining 100 items are therefore 7 to 10 hours, which the
+# earlier 10-hour limit would have cut off mid-sweep; 20 hours leaves margin and
+# costs nothing, since the job is billed on elapsed time and a longer --time did
+# not delay the start. The 9B writes three to five times as much thinking as the
+# 35B and hit the 22000 ceiling on 30 to 42 per cent of the pilot items.
 # A pilot runs with V3_LIMIT set at submit time:
 #     V3_LIMIT=50 V3_REPO=$PWD sbatch --export=ALL,V3_LIMIT,V3_REPO qwen/run_nba150_v3_qwen35.slurm
-# Raising it later and resubmitting adds the rest; an instance whose result
-# file already exists is never re-sent.
+# Extending it later names the new ids instead, so that nothing already tried
+# gets a second attempt:
+#     V3_ONLY="$(seq 51 150)" V3_REPO=$PWD sbatch --export=ALL,V3_ONLY,V3_REPO qwen/run_nba150_v3_qwen35.slurm
 #
 #SBATCH --job-name=nba_v3_q35
 #SBATCH --partition=gpu_a100
@@ -38,7 +41,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
 #SBATCH --gpus-per-node=1
-#SBATCH --time=10:00:00
+#SBATCH --time=20:00:00
 #SBATCH --output=slurm_logs/nba_v3_q35_%A_%a.out
 #SBATCH --error=slurm_logs/nba_v3_q35_%A_%a.err
 
@@ -57,6 +60,16 @@ COND="${CONDS[${SLURM_ARRAY_TASK_ID}]}"
 LOW=$(echo "${COND}" | tr "A-Z" "a-z")
 LIMIT_ARG=""
 [ -n "${V3_LIMIT:-}" ] && LIMIT_ARG="--limit ${V3_LIMIT}"
+
+# V3_ONLY restricts the call to these instance ids. It exists because an
+# instance that exhausted the ceiling leaves no result file, so a plain
+# resubmission re-sends it - a second attempt for exactly the instances the
+# scoring rule counts as wrong, and only for those, which is how unequal
+# retry effort creeps back in. Extending a pilot therefore names the new ids
+# rather than relying on resume. The staged index still covers every item, so
+# the collector and scorer still count the ones left unanswered.
+ONLY_ARG=""
+[ -n "${V3_ONLY:-}" ] && ONLY_ARG="--only ${V3_ONLY}"
 
 PORT=$((8860 + SLURM_ARRAY_TASK_ID))
 
@@ -103,7 +116,7 @@ python qwen/run_qwen_paper50.py \
   --system-prompt "${V3}/system.txt" \
   --model "${MODEL}" --run-tag "${RUN_TAG}" \
   --base-url "http://127.0.0.1:${PORT}/v1" \
-  --temperature 0.0 --top-p 1.0 --seed 20260823 --max-tokens 22000
+  --temperature 0.0 --top-p 1.0 --seed 20260823 --max-tokens 22000 ${ONLY_ARG}
 python qwen/collect_qwen_results.py --condition "${COND}" --cli-dir "${V3}/cli/%s" --schema v3 \
   --model "${MODEL}" --run-tag "${RUN_TAG}"
 python score_c0.py \
